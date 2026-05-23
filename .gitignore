@@ -1,0 +1,32 @@
+# ───────────────────────────────────────────────────────────────
+#  SECRETS — never commit these
+# ───────────────────────────────────────────────────────────────
+# Real credentials live in config.js locally. Use config.example.js
+# as the template for what config.js should look like, with real
+# values filled in only on each developer's machine.
+config.js
+
+# Generic secret file patterns
+.env
+.env.*
+*.local
+secrets.json
+credentials.json
+
+# ───────────────────────────────────────────────────────────────
+#  Editor / OS noise
+# ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ───────────────────────────────────────────────────────────────
+#  Build / dependency artifacts (in case the project grows)
+# ───────────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.cache/

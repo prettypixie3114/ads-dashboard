@@ -1,0 +1,2122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meta Ads Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: '#6366f1',
+            surface: { DEFAULT: '#0f172a', 2: '#1e293b', 3: '#334155' }
+          },
+          fontFamily: {
+            sans: ['-apple-system','BlinkMacSystemFont','Segoe UI','Roboto','sans-serif'],
+            mono: ['ui-monospace','SFMono-Regular','Menlo','monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root { --brand: #6366f1; }
+
+    /* ── Eye-comfort dark theme overrides ──
+       Drop the harsh pure-blacks for warm slate tones, and reduce
+       text contrast so long executive reviews are easier on the eyes. */
+    html.dark body              { background: #0f1729; color: #cbd5e1; }
+    html.dark .surface          { background: #172033; }
+    html.dark .surface-2        { background: #1c2638; }
+    html.dark .divider          { border-color: rgba(148,163,184,0.10); }
+    html.dark .muted            { color: #94a3b8; }
+    html.dark .heading          { color: #e2e8f0; }
+
+    /* ── Preset / view toggle active state — neutral, no blue ── */
+    .preset-btn { @apply px-3 py-1.5 text-xs font-medium rounded-md transition-all text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60; }
+    .preset-btn.active { background: rgba(148,163,184,0.18); color: #e2e8f0 !important; }
+
+    /* ── Top-level tabs: bold weight + soft bg pill, no underline ── */
+    .view-tab {
+      @apply relative px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold tracking-wide uppercase transition-colors
+             text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200;
+      letter-spacing: 0.06em;
+    }
+    .view-tab.active {
+      color: #e2e8f0 !important;
+      background: rgba(148,163,184,0.10);
+      border-radius: 6px 6px 0 0;
+    }
+    html:not(.dark) .view-tab.active { color: #0f172a !important; background: rgba(15,23,42,0.06); }
+
+    /* ── Table header sort button ── */
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--brand); }
+    th.sort-asc::after  { content: ' ↑'; color: var(--brand); }
+    th.sort-desc::after { content: ' ↓'; color: var(--brand); }
+
+    /* ── Row selected highlight — soft slate, no blue ── */
+    tr.row-selected { background: rgba(148,163,184,0.08) !important; }
+
+    /* ══════════════════════════════════════════════════════════
+       DATE PICKER — compact trigger + dual-month popup
+       ══════════════════════════════════════════════════════════ */
+    .dp-trigger {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 10px 6px 12px;
+      font-size: 12px; font-weight: 500; line-height: 1;
+      color: #334155;
+      background: #ffffff; border: 1px solid rgba(148,163,184,0.30);
+      border-radius: 8px; cursor: pointer; transition: border-color 120ms, background 120ms;
+    }
+    html.dark .dp-trigger { color: #e2e8f0; background: rgba(30,41,59,0.6); border-color: rgba(148,163,184,0.20); }
+    .dp-trigger:hover { border-color: rgba(100,116,139,0.55); }
+    .dp-trigger .dp-cal-icon { color: #94a3b8; width: 14px; height: 14px; }
+    .dp-trigger .dp-chev { color: #cbd5e1; width: 12px; height: 12px; margin-left: 2px; }
+
+    .dp-popup {
+      position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
+      display: flex; min-width: 600px;
+      background: #ffffff; border: 1px solid rgba(148,163,184,0.20);
+      border-radius: 14px; box-shadow: 0 14px 40px rgba(15,23,42,0.10), 0 2px 8px rgba(15,23,42,0.04);
+      overflow: hidden;
+    }
+    html.dark .dp-popup {
+      background: #1e293b; border-color: rgba(148,163,184,0.15);
+      box-shadow: 0 18px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    .dp-presets {
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 14px 10px; min-width: 140px;
+      border-right: 1px solid rgba(148,163,184,0.15);
+    }
+    html.dark .dp-presets { border-right-color: rgba(148,163,184,0.10); }
+    .dp-preset {
+      text-align: left; padding: 7px 12px;
+      font-size: 12px; font-weight: 500;
+      color: #475569; border-radius: 6px; cursor: pointer;
+      transition: background 120ms, color 120ms;
+    }
+    html.dark .dp-preset { color: #cbd5e1; }
+    .dp-preset:hover { background: rgba(148,163,184,0.10); color: #0f172a; }
+    html.dark .dp-preset:hover { color: #f1f5f9; }
+    .dp-preset.active {
+      background: rgba(15,23,42,0.06); color: #0f172a;
+    }
+    html.dark .dp-preset.active { background: rgba(241,245,249,0.08); color: #f1f5f9; }
+
+    .dp-cals { padding: 14px 18px 16px; }
+    .dp-cals-row { display: flex; gap: 28px; }
+    .dp-cal { width: 232px; }
+
+    .dp-cal-header {
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      padding: 4px 0 10px;
+    }
+    .dp-month-name {
+      font-size: 13px; font-weight: 600; color: #1e293b;
+      letter-spacing: 0.01em;
+    }
+    html.dark .dp-month-name { color: #e2e8f0; }
+    .dp-nav {
+      position: absolute; top: 0;
+      width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 6px; cursor: pointer; color: #94a3b8;
+      transition: background 120ms, color 120ms;
+    }
+    .dp-nav:hover { background: rgba(148,163,184,0.12); color: #475569; }
+    html.dark .dp-nav:hover { color: #e2e8f0; }
+    .dp-nav.prev { left: 0; }
+    .dp-nav.next { right: 0; }
+    .dp-nav svg { width: 14px; height: 14px; }
+
+    .dp-dow {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      margin-bottom: 4px;
+    }
+    .dp-dow span {
+      text-align: center; padding: 6px 0;
+      font-size: 10px; font-weight: 600;
+      color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em;
+    }
+
+    .dp-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      row-gap: 2px;
+    }
+    .dp-day {
+      position: relative;
+      height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 500;
+      color: #475569; cursor: pointer;
+      transition: background 120ms, color 120ms;
+    }
+    html.dark .dp-day { color: #cbd5e1; }
+    .dp-day::before {
+      content: ''; position: absolute; inset: 2px;
+      border-radius: 999px; transition: background 120ms;
+    }
+    .dp-day > span { position: relative; z-index: 1; }
+    .dp-day:hover::before { background: rgba(148,163,184,0.15); }
+    .dp-day.outside { color: #cbd5e1; cursor: default; }
+    html.dark .dp-day.outside { color: #475569; }
+    .dp-day.outside:hover::before { background: transparent; }
+
+    /* Today: subtle ring */
+    .dp-day.today::before {
+      box-shadow: inset 0 0 0 1px rgba(148,163,184,0.55);
+    }
+
+    /* Range fill (between endpoints) — soft, flush left/right */
+    .dp-day.in-range {
+      background: rgba(99,102,241,0.10);
+      color: #1e293b;
+    }
+    html.dark .dp-day.in-range { background: rgba(99,102,241,0.18); color: #f1f5f9; }
+    .dp-day.in-range:hover::before { background: transparent; }
+
+    /* Range endpoints — solid dark pill */
+    .dp-day.range-start::before, .dp-day.range-end::before {
+      background: #0f172a;
+    }
+    html.dark .dp-day.range-start::before, html.dark .dp-day.range-end::before {
+      background: #e2e8f0;
+    }
+    .dp-day.range-start, .dp-day.range-end { color: #ffffff; }
+    html.dark .dp-day.range-start, html.dark .dp-day.range-end { color: #0f172a; }
+
+    /* Trim the range fill so it tucks under the endpoint pill */
+    .dp-day.range-start.has-end { background: linear-gradient(to right, transparent 50%, rgba(99,102,241,0.10) 50%); }
+    .dp-day.range-end.has-start { background: linear-gradient(to right, rgba(99,102,241,0.10) 50%, transparent 50%); }
+    html.dark .dp-day.range-start.has-end { background: linear-gradient(to right, transparent 50%, rgba(99,102,241,0.18) 50%); }
+    html.dark .dp-day.range-end.has-start { background: linear-gradient(to right, rgba(99,102,241,0.18) 50%, transparent 50%); }
+
+    /* ── Mobile / tablet adaptations ── */
+    @media (max-width: 720px) {
+      .dp-popup {
+        min-width: 0;
+        width: calc(100vw - 24px);
+        max-width: 360px;
+        flex-direction: column;
+      }
+      .dp-presets {
+        flex-direction: row; flex-wrap: nowrap;
+        overflow-x: auto;
+        min-width: 0;
+        padding: 8px 10px;
+        border-right: none;
+        border-bottom: 1px solid rgba(148,163,184,0.15);
+      }
+      html.dark .dp-presets { border-bottom-color: rgba(148,163,184,0.10); }
+      .dp-preset { white-space: nowrap; padding: 6px 10px; }
+      .dp-cals { padding: 12px 14px 14px; }
+      .dp-cals-row { flex-direction: column; gap: 18px; }
+      .dp-cal { width: 100%; max-width: 320px; margin: 0 auto; }
+    }
+
+    /* ── Calmer table dividers in dark ── */
+    html.dark tr     { border-color: rgba(148,163,184,0.06) !important; }
+    html.dark thead  { background: rgba(30,41,59,0.4) !important; }
+
+    /* ── Skeleton pulse ── */
+    @keyframes shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position:  400px 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg, #e5e7eb 25%, #d1d5db 50%, #e5e7eb 75%);
+      background-size: 400px 100%;
+      animation: shimmer 1.4s infinite linear;
+      border-radius: 4px;
+    }
+    .dark .skeleton {
+      background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
+      background-size: 400px 100%;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+
+    /* ── Truncate with tooltip trigger ── */
+    .cell-truncate { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 min-h-screen antialiased">
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  NAVBAR                                                       -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<nav class="sticky top-0 z-50 h-14 flex items-center px-3 sm:px-5 bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200/60 dark:border-slate-700/40">
+  <!-- Left: wordmark + account pill -->
+  <div class="flex items-center gap-3 min-w-0">
+    <svg width="20" height="20" viewBox="0 0 36 36" fill="none" aria-hidden="true" class="opacity-80">
+      <path d="M18 0C8.06 0 0 8.06 0 18s8.06 18 18 18 18-8.06 18-18S27.94 0 18 0z" fill="#64748b"/>
+      <path d="M25.1 23.1l.8-5.1h-4.9v-3.3c0-1.4.7-2.7 2.8-2.7h2.2V7.5s-2-.3-3.9-.3c-4 0-6.6 2.4-6.6 6.8V18h-4.5v5.1h4.5V36c.9.1 1.8.2 2.8.2s1.9-.1 2.8-.2V23.1h3.9z" fill="#fff"/>
+    </svg>
+    <span class="font-semibold text-sm tracking-tight hidden sm:block text-slate-800 dark:text-slate-200">Meta Ads Dashboard</span>
+    <span id="accountPill" class="hidden sm:block font-mono text-[11px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 rounded-full truncate max-w-[160px]">Not configured</span>
+  </div>
+
+  <!-- Right: status · refresh · theme · settings -->
+  <div class="ml-auto flex items-center gap-2">
+    <span id="lastRefresh" class="hidden sm:block text-xs text-slate-400 dark:text-slate-500 mr-1"></span>
+    <span id="loadingDot" class="hidden h-2 w-2 rounded-full bg-slate-400 animate-pulse"></span>
+    <button id="refreshBtn" onclick="loadData()"
+      class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 transition-colors">
+      <svg id="refreshIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Refresh
+    </button>
+    <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme"
+      class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors text-base">
+      <span id="themeIcon">🌙</span>
+    </button>
+    <button onclick="openSettings()" title="Settings"
+      class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+    </button>
+  </div>
+</nav>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  DATE RANGE BAR                                               -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="bg-white/60 dark:bg-slate-900/40 border-b border-slate-200/60 dark:border-slate-700/40 px-3 sm:px-5 py-2.5">
+  <div class="relative inline-block">
+    <button id="dpTrigger" class="dp-trigger" onclick="toggleDatePicker(event)">
+      <svg class="dp-cal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8"  y1="2" x2="8"  y2="6"/>
+        <line x1="3"  y1="10" x2="21" y2="10"/>
+      </svg>
+      <span id="dpLabel">—</span>
+      <svg class="dp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </button>
+    <div id="dpPopup" class="dp-popup hidden"></div>
+  </div>
+  <span id="dateRangeDisplay" class="hidden"></span>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  ERROR BANNER                                                 -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="errorBanner" class="hidden mx-5 mt-4 flex items-start gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-400">
+  <svg class="w-4 h-4 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"/></svg>
+  <div>
+    <strong class="font-semibold">Error</strong>
+    <span id="errorMsg" class="ml-1"></span>
+  </div>
+  <button onclick="clearError()" class="ml-auto text-red-400 hover:text-red-600 shrink-0">✕</button>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  MAIN CONTENT                                                 -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  PROMINENT VIEW TABS (full-width underline tabs)              -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="border-b border-slate-200/60 dark:border-slate-700/40 bg-white/30 dark:bg-slate-900/30 px-3 sm:px-5">
+  <div class="max-w-screen-2xl mx-auto flex items-center gap-1 sm:gap-2 overflow-x-auto">
+    <button id="setupTab" class="view-tab active" onclick="switchView('setup')">Setup</button>
+    <button id="perfTab"  class="view-tab"        onclick="switchView('performance')">Performance</button>
+  </div>
+</div>
+
+<main class="px-3 sm:px-5 py-4 sm:py-5 max-w-screen-2xl mx-auto space-y-5">
+
+  <!-- ── Search + filter toggles + Export ── -->
+  <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+    <!-- Search -->
+    <div class="relative w-full sm:w-auto">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+      <input id="searchInput" type="text" placeholder="Search campaigns / ad sets…"
+        class="pl-8 pr-3 py-2 text-sm rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-slate-400/60 outline-none w-full sm:w-64 transition">
+    </div>
+
+    <!-- Active-only toggle -->
+    <label class="inline-flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 cursor-pointer select-none transition hover:border-slate-400/60">
+      <input id="pausedToggle" type="checkbox" class="accent-slate-500 w-3.5 h-3.5" onchange="togglePaused(this.checked)">
+      <span>Show paused</span>
+    </label>
+
+    <button onclick="exportCSV()" title="Export CSV"
+      class="ml-auto flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300 transition">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      Export CSV
+    </button>
+  </div>
+
+  <!-- ── KPI Cards (Performance view only) ── -->
+  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Total Spend</div>
+      <div id="kpiSpend" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
+      <div id="kpiImpressions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Clicks</div>
+      <div id="kpiClicks" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Avg CTR</div>
+      <div id="kpiCTR" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Avg CPC</div>
+      <div id="kpiCPC" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Conversions</div>
+      <div id="kpiConversions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  HIERARCHY VIEW                                           -->
+  <!--  Two stacked sections per tab:                            -->
+  <!--    Section 1 — Campaign Level (high-level oversight)      -->
+  <!--    Section 2 — Ad Set Level   (granular breakdown)        -->
+  <!--  Each row shows % compliant for its entity.               -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="flex items-center gap-3">
+    <span id="matrixScope" class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">0 campaigns · 0 ad sets</span>
+    <p class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">Click any row to open Planned vs Actual with the per-KPI breakdown</p>
+  </div>
+  <div id="hierarchyHost"></div>
+
+</main><!-- /main -->
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  SETTINGS MODAL                                              -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="settingsModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+      <h3 class="font-semibold text-base">API Configuration</h3>
+      <button onclick="closeSettings()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <!-- Credentials -->
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Meta Ads API</p>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Access Token <span class="text-red-500">*</span></label>
+            <input id="cfgToken" type="password" placeholder="EAAB…"
+              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">App ID</label>
+              <input id="cfgAppId" type="text" placeholder="123456…"
+                class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">App Secret</label>
+              <input id="cfgAppSecret" type="password" placeholder="a1b2c3…"
+                class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Ad Account ID <span class="text-red-500">*</span> <span class="text-gray-400">(digits only)</span></label>
+            <input id="cfgAccount" type="text" placeholder="123456789"
+              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+          </div>
+        </div>
+      </div>
+
+      <!-- Anthropic -->
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Anthropic (AI Analysis)</p>
+        <input id="cfgAnthropic" type="password" placeholder="sk-ant-…"
+          class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+      </div>
+
+      <!-- Thresholds -->
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Performance Thresholds</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Target ROAS</label>
+            <input id="cfgROAS" type="number" step="0.1" placeholder="3.0"
+              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Target CPA (₹)</label>
+            <input id="cfgCPA" type="number" step="0.5" placeholder="25"
+              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
+      <button onclick="closeSettings()" class="flex-1 text-sm font-medium px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Cancel</button>
+      <button onclick="saveSettings()" class="flex-1 text-sm font-semibold px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 transition">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  ANALYSIS MODAL                                              -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="analysisModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-xl max-h-[88vh] overflow-y-auto">
+    <div class="flex items-start justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+      <div>
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-0.5">Planned vs Actual</p>
+        <h3 id="analysisTitle" class="font-semibold text-base leading-snug"></h3>
+      </div>
+      <button onclick="closeAnalysis()" class="mt-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none shrink-0">✕</button>
+    </div>
+    <div id="analysisContent" class="px-6 py-5 space-y-4"></div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  SCRIPTS                                                     -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<script src="config.js"></script>
+<script>
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  1. APP STATE                                                 */
+/* ══════════════════════════════════════════════════════════════ */
+const APP = {
+  view:               'setup',
+  theme:              'light',
+  datePreset:         'last_30d',
+  since:              '',
+  until:              '',
+  campaigns:          [],
+  adsets:             [],
+  insights:           {},        // { [id]: insightObject }
+  itemCache:          {},        // { [id]: full item for modal
+  loading:            false,
+  searchQuery:        '',
+  showPaused:         false,     // default: hide paused for cleaner exec view
+  expandedCells:      {}         // { '<section>_<metricId>_<pass|fail>': true }
+};
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  2. DATE UTILITIES                                            */
+/* ══════════════════════════════════════════════════════════════ */
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+function daysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+function firstOfMonth() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+}
+function getPresetRange(preset) {
+  const t = todayStr();
+  switch (preset) {
+    case 'today':      return { since: t,            until: t          };
+    case 'yesterday':  return { since: daysAgo(1),   until: daysAgo(1) };
+    case 'last_7d':    return { since: daysAgo(6),   until: t          };
+    case 'last_30d':   return { since: daysAgo(29),  until: t          };
+    case 'this_month': return { since: firstOfMonth(), until: t        };
+    default:           return { since: daysAgo(29),  until: t          };
+  }
+}
+function fmtDateLabel(iso) {
+  const [y, m, d] = iso.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[parseInt(m,10)-1]} ${parseInt(d,10)}`;
+}
+function fmtRangeLabel(since, until) {
+  if (since === until) return fmtDateLabel(since);
+  const sYear = since.slice(0,4), uYear = until.slice(0,4);
+  const same  = sYear === uYear;
+  return same
+    ? `${fmtDateLabel(since)} – ${fmtDateLabel(until)}, ${uYear}`
+    : `${fmtDateLabel(since)}, ${sYear} – ${fmtDateLabel(until)}, ${uYear}`;
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  3. META API LAYER                                            */
+/* ══════════════════════════════════════════════════════════════ */
+async function metaFetch(path, params = {}) {
+  const url = new URL(`${CONFIG.API.META_BASE}/${path}`);
+  url.searchParams.set('access_token', CONFIG.META_ACCESS_TOKEN);
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : v);
+  }
+  const res  = await fetch(url.toString());
+  const data = await res.json();
+  if (data.error) throw new Error(`${data.error.message} (code ${data.error.code})`);
+  return data;
+}
+
+async function fetchAllPages(path, params = {}) {
+  const items = [];
+  let page = await metaFetch(path, { ...params, limit: CONFIG.API.MAX_LIMIT });
+  items.push(...(page.data || []));
+  while (page.paging?.next) {
+    const nxt = new URL(page.paging.next);
+    const np  = Object.fromEntries(nxt.searchParams.entries());
+    delete np.access_token;
+    page = await metaFetch(path, np);
+    items.push(...(page.data || []));
+  }
+  return items;
+}
+
+function accountId() {
+  const id = CONFIG.META_AD_ACCOUNT_ID.replace(/^act_/,'');
+  return `act_${id}`;
+}
+
+async function fetchCampaigns() {
+  return fetchAllPages(`${accountId()}/campaigns`, {
+    fields: CONFIG.FIELDS.CAMPAIGN_SETUP,
+    effective_status: JSON.stringify(['ACTIVE','PAUSED'])
+  });
+}
+
+async function fetchAdSets() {
+  try {
+    return await fetchAllPages(`${accountId()}/adsets`, {
+      fields: CONFIG.FIELDS.ADSET_SETUP,
+      effective_status: JSON.stringify(['ACTIVE','PAUSED'])
+    });
+  } catch (e) {
+    /* Retry without the heavy `targeting` field if Meta rejects the payload */
+    if (/reduce the amount of data|code 1\)/i.test(e.message)) {
+      const lite = CONFIG.FIELDS.ADSET_SETUP.split(',').filter(f => f !== 'targeting').join(',');
+      return fetchAllPages(`${accountId()}/adsets`, {
+        fields: lite,
+        effective_status: JSON.stringify(['ACTIVE','PAUSED'])
+      });
+    }
+    throw e;
+  }
+}
+
+/* Account-level batched insights — Meta returns one row per campaign
+   (or per ad set) in a single paginated call, replacing what used to be
+   one HTTP request per entity. Cuts ~94 requests per refresh down to 2,
+   which keeps the per-user rate limit (code 17) happy. */
+async function fetchAccountInsights(level) {
+  /* The base field list doesn't include the entity's own id (we used to
+     read it from the URL). At account level we need it on every row so
+     we can map results back to APP.campaigns / APP.adsets. */
+  const baseFields = level === 'campaign'
+    ? CONFIG.FIELDS.CAMPAIGN_INSIGHTS
+    : CONFIG.FIELDS.ADSET_INSIGHTS;
+  const fields = level === 'campaign'
+    ? baseFields + ',campaign_id'
+    : baseFields + ',adset_id,campaign_id';
+
+  return fetchAllPages(`${accountId()}/insights`, {
+    fields,
+    level,
+    time_range: JSON.stringify({ since: APP.since, until: APP.until }),
+    filtering: JSON.stringify([
+      { field: `${level}.effective_status`, operator: 'IN', value: ['ACTIVE','PAUSED'] }
+    ])
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  4. PARSERS & FORMATTERS                                      */
+/* ══════════════════════════════════════════════════════════════ */
+function parseTargeting(t) {
+  if (!t) return { age:'—', gender:'—', locations:'—', interests:'—' };
+
+  /* Age */
+  const amin = t.age_min || 18, amax = t.age_max || 65;
+  const age  = (amin === 18 && amax === 65) ? 'All ages' : `${amin}–${amax}`;
+
+  /* Gender */
+  const g    = t.genders;
+  const gender = (!g || g.length === 0 || g.length === 2) ? 'All'
+               : g[0] === 1 ? 'Male' : 'Female';
+
+  /* Locations */
+  const geo = t.geo_locations || {};
+  const locs = [];
+  if (geo.countries) locs.push(...geo.countries);
+  if (geo.regions)   locs.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
+  if (geo.cities)    locs.push(...geo.cities.map(c => c.name).filter(Boolean));
+  if (geo.zips && geo.zips.length) locs.push(`${geo.zips.length} ZIP(s)`);
+  const locations = locs.length
+    ? locs.slice(0,4).join(', ') + (locs.length > 4 ? ` +${locs.length-4}` : '')
+    : '—';
+
+  /* Interests / behaviours */
+  const iList = [];
+  if (t.interests)     iList.push(...t.interests.map(i => i.name));
+  if (t.behaviors)     iList.push(...t.behaviors.map(b => b.name));
+  if (t.flexible_spec) t.flexible_spec.forEach(s => {
+    if (s.interests) iList.push(...s.interests.map(i => i.name));
+    if (s.behaviors) iList.push(...s.behaviors.map(b => b.name));
+  });
+  const interests = iList.length
+    ? iList.slice(0,3).join(', ') + (iList.length > 3 ? ` +${iList.length-3}` : '')
+    : '—';
+
+  return { age, gender, locations, interests };
+}
+
+function parseConversions(actions) {
+  if (!actions) return 0;
+  return actions
+    .filter(a => CONFIG.CONVERSION_ACTIONS.includes(a.action_type))
+    .reduce((s, a) => s + parseInt(a.value || 0, 10), 0);
+}
+function parseCostPerConv(cpa) {
+  if (!cpa) return null;
+  for (const t of CONFIG.CONVERSION_ACTIONS) {
+    const f = cpa.find(c => c.action_type === t);
+    if (f) return parseFloat(f.value);
+  }
+  return null;
+}
+
+const $ = (s, c = '') => c === '' ? `<span class="font-mono font-semibold">${s}</span>` : s;
+
+function fmtCur(v, dec = 2) {
+  if (v === null || v === undefined || v === '' || isNaN(+v)) return '<span class="text-slate-300 dark:text-slate-600">—</span>';
+  return `<span class="font-mono">₹${(+v).toLocaleString('en-IN',{minimumFractionDigits:dec,maximumFractionDigits:dec})}</span>`;
+}
+function fmtNum(v) {
+  if (v === null || v === undefined || isNaN(+v) || +v === 0) return '<span class="text-slate-300 dark:text-slate-600">—</span>';
+  return (+v).toLocaleString('en-US');
+}
+function fmtPct(v) {
+  if (v === null || v === undefined || isNaN(+v)) return '<span class="text-slate-300 dark:text-slate-600">—</span>';
+  return `${(+v).toFixed(2)}%`;
+}
+function fmtBudget(cents) {
+  if (!cents || isNaN(+cents)) return '<span class="text-slate-300 dark:text-slate-600">—</span>';
+  return fmtCur(+cents / 100);
+}
+function fmtNumPlain(v, dec = 2) {
+  if (!v || isNaN(+v)) return '—';
+  return (+v).toFixed(dec);
+}
+
+function statusBadge(s) {
+  /* Soft dot-style badges — easier on the eye than full pills */
+  const map = {
+    ACTIVE:   { dot: 'bg-emerald-400/80', text: 'text-emerald-600 dark:text-emerald-400/90' },
+    PAUSED:   { dot: 'bg-amber-400/70',   text: 'text-amber-600  dark:text-amber-400/80'   },
+    ARCHIVED: { dot: 'bg-slate-400/60',   text: 'text-slate-500  dark:text-slate-500'      },
+    DELETED:  { dot: 'bg-rose-400/70',    text: 'text-rose-500   dark:text-rose-400/80'    }
+  };
+  const cfg = map[s] || map['ARCHIVED'];
+  const lbl = s ? s.charAt(0) + s.slice(1).toLowerCase() : 'Unknown';
+  return `<span class="inline-flex items-center gap-1.5 text-[11px] font-medium ${cfg.text}">
+    <span class="w-1.5 h-1.5 rounded-full ${cfg.dot}"></span>${lbl}
+  </span>`;
+}
+
+function objLabel(o) {
+  const m = {
+    REACH:'Reach',BRAND_AWARENESS:'Awareness',LINK_CLICKS:'Link Clicks',
+    TRAFFIC:'Traffic',CONVERSIONS:'Conversions',APP_INSTALLS:'App Installs',
+    LEAD_GENERATION:'Lead Gen',VIDEO_VIEWS:'Video Views',MESSAGES:'Messages',
+    CATALOG_SALES:'Catalog Sales',STORE_VISITS:'Store Visits',
+    OUTCOME_TRAFFIC:'Traffic',OUTCOME_AWARENESS:'Awareness',
+    OUTCOME_ENGAGEMENT:'Engagement',OUTCOME_LEADS:'Leads',
+    OUTCOME_SALES:'Sales',OUTCOME_APP_PROMOTION:'App Promo'
+  };
+  return m[o] || (o || '—');
+}
+
+function escH(s) {
+  return String(s||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  5. METRIC REGISTRIES                                         */
+/*  Each metric:                                                 */
+/*    id        unique key                                       */
+/*    label     KPI name shown in column 1                       */
+/*    target()  Target Goal text (column 2)                      */
+/*    evaluate(item, ins) → 'pass' | 'fail' | 'na'              */
+/*    actual(item, ins)   → human string for the expanded view   */
+/* ══════════════════════════════════════════════════════════════ */
+function _revenue(ins) {
+  return (ins?.action_values || [])
+    .filter(a => CONFIG.CONVERSION_ACTIONS.includes(a.action_type))
+    .reduce((s,a) => s + parseFloat(a.value || 0), 0);
+}
+function _budgetPace(item, ins) {
+  const dailyBud = (item.daily_budget || 0) / 100;
+  const spend    = parseFloat(ins?.spend || 0);
+  if (!dailyBud || !APP.since || !APP.until) return null;
+  const days     = Math.max(1, (new Date(APP.until) - new Date(APP.since)) / 86400000 + 1);
+  const expected = dailyBud * days;
+  if (expected === 0) return null;
+  return { variance: (spend - expected) / expected, expected, spend };
+}
+
+/* Metrics carry an `appliesTo` array so the compliance evaluator knows
+   whether to run them against campaigns, ad sets, or both. Targeting
+   KPIs live on ad sets only — campaign-level Setup compliance is
+   rolled up from the campaign's child ad sets. */
+
+const PERF_METRICS = [
+  {
+    id: 'ctr', label: 'CTR (Click-Through Rate)',
+    target: () => `≥ ${CONFIG.THRESHOLDS.CTR_MIN}%`,
+    appliesTo: ['campaign','adset'],
+    evaluate: (item, ins) => {
+      const impr = parseInt(ins?.impressions || 0, 10);
+      if (!impr) return 'na';
+      return parseFloat(ins.ctr || 0) >= CONFIG.THRESHOLDS.CTR_MIN ? 'pass' : 'fail';
+    },
+    actual: (item, ins) => `${parseFloat(ins?.ctr || 0).toFixed(2)}%`
+  },
+  {
+    id: 'cpa', label: 'Cost per Conversion',
+    target: () => `≤ ₹${CONFIG.THRESHOLDS.CPA_TARGET}`,
+    appliesTo: ['campaign','adset'],
+    evaluate: (item, ins) => {
+      const conv = parseConversions(ins?.actions);
+      const cpa  = parseCostPerConv(ins?.cost_per_action_type);
+      if (!conv || cpa === null) return 'na';
+      return cpa <= CONFIG.THRESHOLDS.CPA_TARGET ? 'pass' : 'fail';
+    },
+    actual: (item, ins) => {
+      const cpa = parseCostPerConv(ins?.cost_per_action_type);
+      return cpa === null ? '—' : `₹${cpa.toFixed(2)}`;
+    }
+  },
+  {
+    id: 'roas', label: 'ROAS',
+    target: () => `≥ ${CONFIG.THRESHOLDS.ROAS_TARGET}x`,
+    appliesTo: ['campaign','adset'],
+    evaluate: (item, ins) => {
+      const spend = parseFloat(ins?.spend || 0);
+      const rev   = _revenue(ins);
+      if (rev === 0 || spend === 0) return 'na';
+      return (rev / spend) >= CONFIG.THRESHOLDS.ROAS_TARGET ? 'pass' : 'fail';
+    },
+    actual: (item, ins) => {
+      const spend = parseFloat(ins?.spend || 0);
+      const rev   = _revenue(ins);
+      return (rev === 0 || spend === 0) ? '—' : `${(rev / spend).toFixed(2)}x`;
+    }
+  },
+  {
+    id: 'budget', label: 'Budget Pace',
+    target: () => `within ±${(CONFIG.THRESHOLDS.BUDGET_VARIANCE * 100).toFixed(0)}% of planned`,
+    appliesTo: ['campaign','adset'],
+    evaluate: (item, ins) => {
+      const p = _budgetPace(item, ins);
+      if (!p) return 'na';
+      return Math.abs(p.variance) <= CONFIG.THRESHOLDS.BUDGET_VARIANCE ? 'pass' : 'fail';
+    },
+    actual: (item, ins) => {
+      const p = _budgetPace(item, ins);
+      if (!p) return '—';
+      return `${p.variance >= 0 ? '+' : ''}${(p.variance*100).toFixed(0)}%`;
+    }
+  },
+  {
+    id: 'conv', label: 'Conversions Generated',
+    target: () => `> 0 when spend > 0`,
+    appliesTo: ['campaign','adset'],
+    evaluate: (item, ins) => {
+      const spend = parseFloat(ins?.spend || 0);
+      if (!spend) return 'na';
+      return parseConversions(ins?.actions) > 0 ? 'pass' : 'fail';
+    },
+    actual: (item, ins) => `${parseConversions(ins?.actions)}`
+  }
+];
+
+/* The 5 core Setup KPIs the executive view tracks. Live on ad sets;
+   campaign Setup compliance is the rollup of its ad sets. */
+const SETUP_METRICS = [
+  {
+    id: 'age', label: 'Age Defined',
+    target: () => 'Specific age range (not 18–65 default)',
+    appliesTo: ['adset'],
+    evaluate: item => {
+      const t = item.targeting || {};
+      const amin = t.age_min, amax = t.age_max;
+      const isDefault = (!amin || amin === 18) && (!amax || amax === 65);
+      return isDefault ? 'fail' : 'pass';
+    },
+    actual: item => {
+      const t = item.targeting || {};
+      return `${t.age_min || 18}–${t.age_max || 65}`;
+    }
+  },
+  {
+    id: 'gender', label: 'Gender Defined',
+    target: () => 'Specific gender (not "All")',
+    appliesTo: ['adset'],
+    evaluate: item => {
+      const g = item.targeting?.genders;
+      if (!g || g.length === 0 || g.length === 2) return 'fail';
+      return 'pass';
+    },
+    actual: item => {
+      const g = item.targeting?.genders;
+      if (!g || g.length === 0 || g.length === 2) return 'All (default)';
+      return g[0] === 1 ? 'Male' : 'Female';
+    }
+  },
+  {
+    id: 'location', label: 'Location Defined',
+    target: () => 'At least one geo target',
+    appliesTo: ['adset'],
+    evaluate: item => {
+      const geo = item.targeting?.geo_locations || {};
+      const has = (geo.countries?.length > 0) ||
+                  (geo.regions?.length > 0)   ||
+                  (geo.cities?.length > 0)    ||
+                  (geo.zips?.length > 0);
+      return has ? 'pass' : 'fail';
+    },
+    actual: item => {
+      const t = parseTargeting(item.targeting);
+      return t.locations;
+    }
+  },
+  {
+    id: 'interests', label: 'Interests Defined',
+    target: () => 'Interest/behavior targeting set',
+    appliesTo: ['adset'],
+    evaluate: item => {
+      const t = item.targeting || {};
+      const has = (t.interests?.length > 0) ||
+                  (t.behaviors?.length > 0) ||
+                  (t.flexible_spec?.some(s => (s.interests?.length || s.behaviors?.length)));
+      return has ? 'pass' : 'fail';
+    },
+    actual: item => {
+      const t = item.targeting || {};
+      const list = [];
+      if (t.interests) list.push(...t.interests.map(i => i.name));
+      if (t.behaviors) list.push(...t.behaviors.map(b => b.name));
+      (t.flexible_spec || []).forEach(s => {
+        if (s.interests) list.push(...s.interests.map(i => i.name));
+        if (s.behaviors) list.push(...s.behaviors.map(b => b.name));
+      });
+      return list.length ? `${list.length} interest${list.length===1?'':'s'}` : 'Missing';
+    }
+  },
+  {
+    id: 'audience', label: 'Audience Type Defined',
+    target: () => 'Custom / Lookalike / Detailed (not broad-only)',
+    appliesTo: ['adset'],
+    evaluate: item => {
+      const t = item.targeting || {};
+      const hasCustom   = (t.custom_audiences?.length > 0);
+      const hasDetailed = (t.interests?.length > 0) ||
+                          (t.behaviors?.length > 0) ||
+                          (t.flexible_spec?.length > 0);
+      return (hasCustom || hasDetailed) ? 'pass' : 'fail';
+    },
+    actual: item => {
+      const t = item.targeting || {};
+      if (t.custom_audiences?.length) return `${t.custom_audiences.length} custom audience${t.custom_audiences.length===1?'':'s'}`;
+      if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length) return 'Detailed targeting';
+      return 'Broad only';
+    }
+  }
+];
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  6. COMPLIANCE SCORING                                        */
+/* ══════════════════════════════════════════════════════════════ */
+function _entityType(item) {
+  return item.objective ? 'campaign' : 'adset';
+}
+function _entityKind(item) {
+  return item.objective ? 'Campaign' : 'Ad Set';
+}
+
+/* Run all applicable metrics for one entity and produce a score */
+function complianceScore(item, metrics) {
+  let pass = 0, fail = 0, na = 0;
+  const passed = [], failed = [];
+  const type = _entityType(item);
+  metrics.forEach(m => {
+    if (m.appliesTo && !m.appliesTo.includes(type)) { na++; return; }
+    const r = m.evaluate(item, APP.insights[item.id]);
+    if      (r === 'pass') { pass++; passed.push(m); }
+    else if (r === 'fail') { fail++; failed.push(m); }
+    else                    na++;
+  });
+  const total = pass + fail;
+  return {
+    pass, fail, na, total,
+    pct:    total > 0 ? Math.round((pass / total) * 100) : null,
+    failed, passed
+  };
+}
+
+/* For the Setup tab, campaigns have no targeting — roll up from
+   their ad sets so the Campaign Level section is still meaningful. */
+function rolledUpScore(campaign, metrics) {
+  const children = APP.adsets.filter(a => a.campaign_id === campaign.id);
+  if (children.length === 0) {
+    return { pass: 0, fail: 0, na: 0, total: 0, pct: null,
+             passed: [], failed: [], childCount: 0, isRollup: true };
+  }
+  let pass = 0, fail = 0;
+  const failedMetrics = new Map();          // metric id → fail count
+  children.forEach(c => {
+    const s = complianceScore(c, metrics);
+    pass += s.pass; fail += s.fail;
+    s.failed.forEach(m => failedMetrics.set(m.id, (failedMetrics.get(m.id) || 0) + 1));
+  });
+  const total = pass + fail;
+  /* Surface metrics that failed in ≥30% of children */
+  const threshold = Math.max(1, Math.ceil(children.length * 0.3));
+  const failed = [...failedMetrics.entries()]
+    .filter(([, n]) => n >= threshold)
+    .map(([id]) => metrics.find(m => m.id === id))
+    .filter(Boolean);
+  return { pass, fail, na: 0, total,
+           pct: total > 0 ? Math.round((pass / total) * 100) : null,
+           passed: [], failed, childCount: children.length, isRollup: true };
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  7. COMPLIANCE MATRIX RENDERING                               */
+/*  Two stacked matrices per tab — one for Campaigns, one for    */
+/*  Ad Sets. Each matrix: rows = KPIs, columns =                 */
+/*  KPI | Target Goal | Compliant | Non-Compliant.               */
+/*  Click a Compliant/Non-Compliant cell to expand the list of   */
+/*  underlying entities — each entry shows that entity's overall */
+/*  compliance % across all KPIs in this tab.                    */
+/* ══════════════════════════════════════════════════════════════ */
+function skeletonMatrixRows(n = 5) {
+  return Array.from({length: n}, () =>
+    `<tr class="border-b border-slate-200/40 dark:border-slate-700/30">
+      ${Array.from({length: 4}, () =>
+        `<td class="px-4 py-4"><div class="skeleton h-3.5 rounded" style="width:${55+Math.random()*35}%"></div></td>`
+      ).join('')}
+    </tr>`
+  ).join('');
+}
+
+function statusBadgeInline(s) {
+  const colors = { ACTIVE: 'text-emerald-500', PAUSED: 'text-amber-500', ARCHIVED: 'text-slate-400', DELETED: 'text-rose-500' };
+  return `<span class="${colors[s] || colors.ARCHIVED}">${(s || 'unknown').toLowerCase()}</span>`;
+}
+
+/* For Setup-tab campaigns we don't have direct targeting data, so
+   a campaign passes/fails a KPI based on whether the MAJORITY of its
+   child ad sets pass that KPI. */
+function evaluateCampaignByRollup(campaign, metric) {
+  const children = APP.adsets.filter(a => a.campaign_id === campaign.id);
+  if (!children.length) return 'na';
+  let pass = 0, fail = 0;
+  children.forEach(c => {
+    const r = metric.evaluate(c, APP.insights[c.id]);
+    if (r === 'pass') pass++;
+    else if (r === 'fail') fail++;
+  });
+  if (pass + fail === 0) return 'na';
+  return pass >= fail ? 'pass' : 'fail';
+}
+
+function evalForRow(item, metric, type) {
+  /* Setup metrics tagged adset-only → roll up for campaigns */
+  if (type === 'campaign' && metric.appliesTo && !metric.appliesTo.includes('campaign')) {
+    return evaluateCampaignByRollup(item, metric);
+  }
+  return metric.evaluate(item, APP.insights[item.id]);
+}
+
+/* Each entity in the expanded cell shows its overall compliance %
+   across all KPIs in the current tab. Bar colored by score. */
+function entityComplianceRow(item, type) {
+  const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
+  const s = (type === 'campaign' && APP.view === 'setup')
+    ? rolledUpScore(item, metrics)
+    : complianceScore(item, metrics);
+  const pct = s.pct;
+  const barColor = pct === null ? 'bg-slate-300'
+                 : pct >= 80    ? 'bg-emerald-400'
+                 : pct >= 50    ? 'bg-amber-400'
+                 :                'bg-rose-400';
+  const pctTxt   = pct === null ? '—'
+                 : pct >= 80    ? 'text-emerald-600 dark:text-emerald-400'
+                 : pct >= 50    ? 'text-amber-600 dark:text-amber-400'
+                 :                'text-rose-600 dark:text-rose-400';
+  return `
+    <button onclick="event.stopPropagation(); openAnalysis('${item.id}')"
+            class="w-full text-left flex items-center gap-3 py-1.5 px-2 -mx-2 rounded-md hover:bg-slate-100/60 dark:hover:bg-slate-700/30 transition group">
+      <span class="text-xs font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white">${escH(item.name)}</span>
+      <div class="flex items-center gap-2 shrink-0 w-[160px]">
+        <div class="flex-1 h-1 bg-slate-200 dark:bg-slate-700/50 rounded-full overflow-hidden">
+          <div class="h-full ${barColor} rounded-full" style="width:${pct === null ? 0 : pct}%"></div>
+        </div>
+        <span class="text-[11px] font-mono font-semibold ${pctTxt} w-12 text-right">
+          ${pct === null ? '—' : pct + '%'}
+        </span>
+      </div>
+    </button>`;
+}
+
+function complianceCellButton(sectionKey, metricId, count, kind) {
+  if (count === 0) return `<div class="text-xs text-slate-400 italic">—</div>`;
+  const expanded = APP.expandedCells[`${sectionKey}_${metricId}_${kind}`];
+  const dot      = kind === 'pass' ? 'bg-emerald-400' : 'bg-rose-400';
+  const txt      = kind === 'pass' ? 'text-emerald-700 dark:text-emerald-400'
+                                   : 'text-rose-700 dark:text-rose-400';
+  return `
+    <button onclick="event.stopPropagation(); toggleCell('${sectionKey}','${metricId}','${kind}')"
+            class="inline-flex items-center gap-2 text-xs font-semibold ${txt} hover:opacity-80 transition">
+      <span class="w-1.5 h-1.5 rounded-full ${dot}"></span>
+      ${count} ${count === 1 ? 'item' : 'items'}
+      <span class="text-slate-400 text-[10px]">${expanded ? '▾' : '▸'}</span>
+    </button>`;
+}
+
+function toggleCell(sectionKey, metricId, kind) {
+  const key = `${sectionKey}_${metricId}_${kind}`;
+  APP.expandedCells[key] = !APP.expandedCells[key];
+  renderHierarchy();
+}
+
+function renderMatrixSection(title, subtitle, items, type, sectionKey) {
+  const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
+
+  /* Build one row per KPI */
+  const tbody = metrics.map(m => {
+    const compliant = [], nonCompliant = [];
+    items.forEach(it => {
+      const r = evalForRow(it, m, type);
+      if (r === 'pass')      compliant.push(it);
+      else if (r === 'fail') nonCompliant.push(it);
+    });
+    const expC = APP.expandedCells[`${sectionKey}_${m.id}_pass`];
+    const expN = APP.expandedCells[`${sectionKey}_${m.id}_fail`];
+    return `
+      <tr class="border-b border-slate-200/40 dark:border-slate-700/30 align-top">
+        <td class="px-4 py-4">
+          <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">${m.label}</div>
+        </td>
+        <td class="px-4 py-4">
+          <div class="text-sm font-mono text-slate-600 dark:text-slate-400">${m.target()}</div>
+        </td>
+        <td class="px-4 py-4">
+          ${complianceCellButton(sectionKey, m.id, compliant.length, 'pass')}
+          ${expC ? `<div class="mt-3 space-y-0.5 max-h-72 overflow-y-auto pr-1">
+              ${compliant.map(it => entityComplianceRow(it, type)).join('')}
+            </div>` : ''}
+        </td>
+        <td class="px-4 py-4">
+          ${complianceCellButton(sectionKey, m.id, nonCompliant.length, 'fail')}
+          ${expN ? `<div class="mt-3 space-y-0.5 max-h-72 overflow-y-auto pr-1">
+              ${nonCompliant.map(it => entityComplianceRow(it, type)).join('')}
+            </div>` : ''}
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <section>
+      <div class="flex items-baseline gap-3 mb-2.5">
+        <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">${title}
+          <span class="ml-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${items.length}</span>
+        </h2>
+        <p class="text-[11px] text-slate-400 dark:text-slate-500">${subtitle}</p>
+      </div>
+      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr class="border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/80 dark:bg-slate-800/40">
+                <th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 w-[24%]">KPI</th>
+                <th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 w-[22%]">Target Goal</th>
+                <th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400/80 w-[27%]">Compliant</th>
+                <th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400/80 w-[27%]">Non-Compliant</th>
+              </tr>
+            </thead>
+            <tbody>${tbody}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>`;
+}
+
+function renderHierarchy() {
+  /* Filter base sets */
+  const filt = arr => {
+    let r = [...arr];
+    if (!APP.showPaused) r = r.filter(x => x.status !== 'PAUSED');
+    if (APP.searchQuery) {
+      const q = APP.searchQuery.toLowerCase();
+      r = r.filter(x => x.name?.toLowerCase().includes(q));
+    }
+    return r;
+  };
+  const campaigns = filt(APP.campaigns);
+  const adsets    = filt(APP.adsets);
+
+  document.getElementById('matrixScope').textContent =
+    `${campaigns.length} campaign${campaigns.length===1?'':'s'} · ${adsets.length} ad set${adsets.length===1?'':'s'}`;
+
+  const campaignSubtitle = APP.view === 'setup'
+    ? 'KPI verdicts rolled up from child ad sets (majority pass = compliant)'
+    : 'Evaluated directly from campaign-level insights';
+
+  document.getElementById('hierarchyHost').innerHTML = `
+    <div class="space-y-5">
+      ${renderMatrixSection('Section 1 — Campaigns', campaignSubtitle, campaigns, 'campaign', 'camp')}
+      ${renderMatrixSection('Section 2 — Ad Sets',
+                            'Evaluated directly against each ad set',
+                            adsets, 'adset', 'ads')}
+    </div>`;
+
+  renderKPIs();
+}
+
+/* Backwards-compatible alias — other code paths still call renderAll */
+function renderAll() { renderHierarchy(); }
+
+function renderKPIs() {
+  const row = document.getElementById('kpiRow');
+  if (APP.view !== 'performance') { row.classList.add('hidden'); return; }
+  row.classList.remove('hidden');
+
+  /* Only roll up what's currently visible — keeps KPIs consistent
+     with the table when paused items are hidden. */
+  const visibleIds = APP.showPaused
+    ? [...APP.campaigns, ...APP.adsets].map(x => x.id)
+    : [...APP.campaigns, ...APP.adsets].filter(x => x.status !== 'PAUSED').map(x => x.id);
+  const all = visibleIds.map(id => APP.insights[id]).filter(Boolean);
+  const totalSpend = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
+  const totalImpr  = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
+  const totalClk   = all.reduce((s,i) => s + parseInt(i.clicks||0,10), 0);
+  const avgCTR     = totalImpr  > 0 ? totalClk / totalImpr * 100 : 0;
+  const avgCPC     = totalClk   > 0 ? totalSpend / totalClk : 0;
+  const totalConv  = all.reduce((s,i) => s + parseConversions(i.actions), 0);
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
+  set('kpiSpend',       `₹${totalSpend.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
+  set('kpiImpressions', totalImpr.toLocaleString('en-IN'));
+  set('kpiClicks',      totalClk.toLocaleString('en-IN'));
+  set('kpiCTR',         `${avgCTR.toFixed(2)}%`);
+  set('kpiCPC',         `₹${avgCPC.toFixed(2)}`);
+  set('kpiConversions', totalConv.toLocaleString('en-IN'));
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  9. DATA LOADING                                              */
+/* ══════════════════════════════════════════════════════════════ */
+async function loadData() {
+  if (!isConfigured()) { openSettings(); return; }
+  if (APP.loading) return;
+
+  APP.loading = true;
+  clearError();
+  setLoadingUI(true);
+
+  /* skeleton loaders — render a lightweight placeholder matrix
+     until the real data arrives. */
+  document.getElementById('hierarchyHost').innerHTML = `
+    <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+      <table class="w-full"><tbody>${skeletonMatrixRows(8)}</tbody></table>
+    </div>`;
+
+  try {
+    const [camps, adsets] = await Promise.all([fetchCampaigns(), fetchAdSets()]);
+    APP.campaigns = camps;
+    APP.adsets    = adsets;
+
+    /* cache all items for modal use */
+    [...camps, ...adsets].forEach(x => { APP.itemCache[x.id] = x; });
+
+    if (APP.view === 'performance') {
+      await loadInsights();
+    } else {
+      renderAll();
+    }
+
+    /* Persist to localStorage so we don't re-hit the API today */
+    saveCache();
+
+    setLastRefreshUI(new Date());
+
+  } catch (err) {
+    showError(err.message);
+    /* Without this, the skeleton placeholder stays forever when the
+       initial campaigns/adsets fetch fails (e.g. rate-limit on cold load). */
+    renderAll();
+  } finally {
+    APP.loading = false;
+    setLoadingUI(false);
+  }
+}
+
+/* ── Daily cache helpers ─────────────────────────────────────────────
+   Refresh hits Meta only when the user clicks Refresh, or once per
+   calendar day on first load. All other page loads restore from cache.
+   Keyed per ad-account so switching accounts won't mix data. */
+const CACHE_KEY = () => `metaAdsCache_${CONFIG.META_AD_ACCOUNT_ID}`;
+
+function saveCache() {
+  try {
+    localStorage.setItem(CACHE_KEY(), JSON.stringify({
+      date:      todayStr(),
+      savedAt:   Date.now(),
+      since:     APP.since,
+      until:     APP.until,
+      campaigns: APP.campaigns,
+      adsets:    APP.adsets,
+      insights:  APP.insights
+    }));
+  } catch (_) { /* quota or serialization issue — skip silently */ }
+}
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY());
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) { return null; }
+}
+
+function restoreFromCache(c) {
+  APP.campaigns = c.campaigns || [];
+  APP.adsets    = c.adsets    || [];
+  APP.insights  = c.insights  || {};
+  [...APP.campaigns, ...APP.adsets].forEach(x => { APP.itemCache[x.id] = x; });
+  renderAll();
+  setLastRefreshUI(new Date(c.savedAt));
+}
+
+function setLastRefreshUI(d) {
+  const el = document.getElementById('lastRefresh');
+  if (!el) return;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const stamp = sameDay
+    ? d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})
+    : d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  el.textContent = `Updated ${stamp}`;
+}
+
+async function loadInsights() {
+  if (!APP.since || !APP.until) return;
+
+  /* KPI skeleton */
+  ['kpiSpend','kpiImpressions','kpiClicks','kpiCTR','kpiCPC','kpiConversions'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<span class="skeleton inline-block w-16 h-5 rounded"></span>';
+  });
+
+  APP.insights = {};
+  try {
+    /* Two parallel calls instead of ~94 per-entity calls */
+    const [campRows, adsetRows] = await Promise.all([
+      fetchAccountInsights('campaign'),
+      fetchAccountInsights('adset')
+    ]);
+    campRows.forEach(r  => { if (r.campaign_id) APP.insights[r.campaign_id] = r; });
+    adsetRows.forEach(r => { if (r.adset_id)    APP.insights[r.adset_id]    = r; });
+  } catch (e) {
+    showError(e.message);
+  }
+
+  renderAll();
+}
+
+function setLoadingUI(on) {
+  const btn  = document.getElementById('refreshBtn');
+  const dot  = document.getElementById('loadingDot');
+  const icon = document.getElementById('refreshIcon');
+  btn.disabled = on;
+  dot.classList.toggle('hidden', !on);
+  icon.style.animation = on ? 'spin 1s linear infinite' : '';
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  10. DATE / VIEW EVENT HANDLERS                               */
+/* ══════════════════════════════════════════════════════════════ */
+function selectPreset(preset) {
+  APP.datePreset = preset;
+  const range = getPresetRange(preset);
+  APP.since = range.since;
+  APP.until = range.until;
+  updateDpTriggerLabel();
+
+  /* re-fetch insights only if structure is already loaded */
+  if (APP.view === 'performance' && APP.campaigns.length > 0) {
+    APP.insights = {};
+    loadInsights();
+  } else {
+    loadData();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  10b. DATE PICKER                                             */
+/* ══════════════════════════════════════════════════════════════ */
+const PICKER = {
+  open:         false,
+  viewYear:     new Date().getFullYear(),
+  viewMonth:    new Date().getMonth(),
+  pendingStart: null,
+  hoverDate:    null
+};
+
+const PRESET_LIST = [
+  { id: 'today',      label: 'Today'         },
+  { id: 'yesterday',  label: 'Yesterday'     },
+  { id: 'last_7d',    label: 'Last 7 days'   },
+  { id: 'last_30d',   label: 'Last 30 days'  },
+  { id: 'this_month', label: 'This month'    }
+];
+
+function updateDpTriggerLabel() {
+  const el = document.getElementById('dpLabel');
+  if (el && APP.since && APP.until) el.textContent = fmtRangeLabel(APP.since, APP.until);
+  /* keep the hidden mirror up to date for any legacy reader */
+  const dd = document.getElementById('dateRangeDisplay');
+  if (dd && APP.since && APP.until) dd.textContent = fmtRangeLabel(APP.since, APP.until);
+}
+
+function toggleDatePicker(e) {
+  if (e) e.stopPropagation();
+  PICKER.open = !PICKER.open;
+  if (PICKER.open) {
+    /* Open on the month of the current `until` date so latest is visible */
+    const d = APP.until ? new Date(APP.until) : new Date();
+    PICKER.viewMonth = d.getMonth();
+    PICKER.viewYear  = d.getFullYear();
+    PICKER.pendingStart = null;
+    PICKER.hoverDate    = null;
+    /* Left calendar should be the month BEFORE current, so latest is on the right */
+    PICKER.viewMonth -= 1;
+    if (PICKER.viewMonth < 0) { PICKER.viewMonth = 11; PICKER.viewYear -= 1; }
+  }
+  renderDatePicker();
+}
+
+function closeDatePicker() {
+  if (!PICKER.open) return;
+  PICKER.open = false;
+  PICKER.pendingStart = null;
+  PICKER.hoverDate = null;
+  document.getElementById('dpPopup').classList.add('hidden');
+}
+
+function navMonth(delta) {
+  PICKER.viewMonth += delta;
+  while (PICKER.viewMonth < 0)   { PICKER.viewMonth += 12; PICKER.viewYear--; }
+  while (PICKER.viewMonth > 11)  { PICKER.viewMonth -= 12; PICKER.viewYear++; }
+  renderDatePicker();
+}
+
+function pickDay(iso) {
+  if (iso > todayStr()) return;        // future dates ignored
+  if (!PICKER.pendingStart) {
+    PICKER.pendingStart = iso;
+    PICKER.hoverDate    = iso;
+    renderDatePicker();
+    return;
+  }
+  /* Second click → commit the range */
+  let start = PICKER.pendingStart, end = iso;
+  if (start > end) [start, end] = [end, start];
+  APP.since = start;
+  APP.until = end;
+  APP.datePreset = 'custom';
+  updateDpTriggerLabel();
+  closeDatePicker();
+
+  if (APP.view === 'performance' && APP.campaigns.length > 0) {
+    APP.insights = {};
+    loadInsights();
+  } else {
+    loadData();
+  }
+}
+
+function dpHover(iso) {
+  if (!PICKER.pendingStart) return;
+  PICKER.hoverDate = iso;
+  renderDatePicker();
+}
+
+function renderDatePicker() {
+  const popup = document.getElementById('dpPopup');
+  if (!popup) return;
+  if (!PICKER.open) { popup.classList.add('hidden'); return; }
+  popup.classList.remove('hidden');
+
+  /* Two months side by side */
+  let m1y = PICKER.viewYear, m1m = PICKER.viewMonth;
+  let m2y = m1y, m2m = m1m + 1;
+  if (m2m > 11) { m2m -= 12; m2y += 1; }
+
+  popup.innerHTML = `
+    <div class="dp-presets">
+      ${PRESET_LIST.map(p => `
+        <button class="dp-preset ${APP.datePreset === p.id ? 'active' : ''}"
+                onclick="event.stopPropagation(); selectPreset('${p.id}'); closeDatePicker();">
+          ${p.label}
+        </button>`).join('')}
+    </div>
+    <div class="dp-cals">
+      <div class="dp-cals-row">
+        ${renderCalendar(m1y, m1m, true,  false)}
+        ${renderCalendar(m2y, m2m, false, true )}
+      </div>
+    </div>`;
+}
+
+function renderCalendar(year, month, showPrev, showNext) {
+  const MONTH_NAMES = ['January','February','March','April','May','June',
+                       'July','August','September','October','November','December'];
+  const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const today = todayStr();
+
+  /* Build effective range (committed + in-progress) */
+  let rs = PICKER.pendingStart ? PICKER.pendingStart : APP.since;
+  let re = PICKER.pendingStart ? (PICKER.hoverDate || PICKER.pendingStart) : APP.until;
+  if (rs && re && rs > re) [rs, re] = [re, rs];
+
+  const first   = new Date(year, month, 1);
+  const last    = new Date(year, month + 1, 0);
+  const firstDow = first.getDay();
+  const daysInMonth = last.getDate();
+  const prevMonthLast = new Date(year, month, 0).getDate();
+
+  const cells = [];
+  for (let i = firstDow - 1; i >= 0; i--) {
+    cells.push({ day: prevMonthLast - i,
+                 year: month === 0 ? year-1 : year,
+                 month: month === 0 ? 11 : month-1,
+                 outside: true });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d, year, month, outside: false });
+  }
+  let next = 1;
+  while (cells.length < 42) {
+    cells.push({ day: next++,
+                 year: month === 11 ? year+1 : year,
+                 month: month === 11 ? 0 : month+1,
+                 outside: true });
+  }
+
+  const grid = cells.map(c => {
+    const iso = `${c.year}-${String(c.month+1).padStart(2,'0')}-${String(c.day).padStart(2,'0')}`;
+    const cls = ['dp-day'];
+    if (c.outside)              cls.push('outside');
+    if (iso === today)          cls.push('today');
+    const isStart = rs && iso === rs;
+    const isEnd   = re && iso === re;
+    const inMid   = rs && re && iso > rs && iso < re;
+    if (inMid)              cls.push('in-range');
+    if (isStart)            cls.push('range-start');
+    if (isEnd)              cls.push('range-end');
+    if (isStart && re && rs !== re) cls.push('has-end');
+    if (isEnd   && rs && rs !== re) cls.push('has-start');
+    if (iso > today)        cls.push('outside');
+    const handler = c.outside || iso > today
+      ? ''
+      : `onclick="event.stopPropagation(); pickDay('${iso}')" onmouseenter="dpHover('${iso}')"`;
+    return `<div class="${cls.join(' ')}" ${handler}><span>${c.day}</span></div>`;
+  }).join('');
+
+  return `
+    <div class="dp-cal">
+      <div class="dp-cal-header">
+        ${showPrev ? `<button class="dp-nav prev" onclick="event.stopPropagation(); navMonth(-1)" aria-label="Previous month">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>` : ''}
+        <span class="dp-month-name">${MONTH_NAMES[month]} ${year}</span>
+        ${showNext ? `<button class="dp-nav next" onclick="event.stopPropagation(); navMonth(1)" aria-label="Next month">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>` : ''}
+      </div>
+      <div class="dp-dow">${DOW.map(d => `<span>${d}</span>`).join('')}</div>
+      <div class="dp-grid">${grid}</div>
+    </div>`;
+}
+
+function switchView(view) {
+  APP.view = view;
+  document.getElementById('setupTab').classList.toggle('active', view === 'setup');
+  document.getElementById('perfTab').classList.toggle('active',  view === 'performance');
+
+  /* Re-render IMMEDIATELY so the matrix swaps to the new tab's KPIs on
+     the first click. If Performance needs insights we haven't fetched
+     yet, kick that off in the background — loadInsights() will call
+     renderAll() again when the data lands. */
+  renderAll();
+
+  if (view === 'performance' && Object.keys(APP.insights).length === 0 && APP.campaigns.length > 0) {
+    loadInsights();
+  }
+}
+
+function togglePaused(checked) {
+  APP.showPaused = !!checked;
+  renderAll();
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  11. SETTINGS MODAL                                           */
+/* ══════════════════════════════════════════════════════════════ */
+function openSettings() {
+  const m = document.getElementById('settingsModal');
+  m.classList.remove('hidden');
+  m.classList.add('flex');
+  document.getElementById('cfgToken').value    = CONFIG.META_ACCESS_TOKEN;
+  document.getElementById('cfgAppId').value    = CONFIG.META_APP_ID;
+  document.getElementById('cfgAppSecret').value = CONFIG.META_APP_SECRET;
+  document.getElementById('cfgAccount').value  = CONFIG.META_AD_ACCOUNT_ID;
+  document.getElementById('cfgAnthropic').value = CONFIG.ANTHROPIC_API_KEY;
+  document.getElementById('cfgROAS').value     = CONFIG.THRESHOLDS.ROAS_TARGET;
+  document.getElementById('cfgCPA').value      = CONFIG.THRESHOLDS.CPA_TARGET;
+}
+function closeSettings() {
+  const m = document.getElementById('settingsModal');
+  m.classList.add('hidden');
+  m.classList.remove('flex');
+}
+function saveSettings() {
+  CONFIG.META_ACCESS_TOKEN  = document.getElementById('cfgToken').value.trim();
+  CONFIG.META_APP_ID        = document.getElementById('cfgAppId').value.trim();
+  CONFIG.META_APP_SECRET    = document.getElementById('cfgAppSecret').value.trim();
+  CONFIG.META_AD_ACCOUNT_ID = document.getElementById('cfgAccount').value.trim().replace(/^act_/,'');
+  CONFIG.ANTHROPIC_API_KEY  = document.getElementById('cfgAnthropic').value.trim();
+  CONFIG.THRESHOLDS.ROAS_TARGET = parseFloat(document.getElementById('cfgROAS').value) || 3.0;
+  CONFIG.THRESHOLDS.CPA_TARGET  = parseFloat(document.getElementById('cfgCPA').value)  || 25.0;
+  persistConfig();
+  closeSettings();
+  document.getElementById('accountPill').textContent = `act_${CONFIG.META_AD_ACCOUNT_ID}`;
+  if (isConfigured()) loadData();
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  12. ANALYSIS MODAL                                           */
+/* ══════════════════════════════════════════════════════════════ */
+/* ── Local compliance analyzer ──
+   Pure-JS, no external API. Compares actuals to CONFIG.THRESHOLDS and
+   returns the metrics that meet (compliant) and fail (non-compliant)
+   their planned targets, with a one-line "what to do" hint for each
+   failure so a buyer can act immediately. */
+function analyzeCompliance(item, ins) {
+  const t        = CONFIG.THRESHOLDS;
+  const conv     = parseConversions(ins.actions);
+  const cpa      = parseCostPerConv(ins.cost_per_action_type);
+  const spend    = parseFloat(ins.spend || 0);
+  const impr     = parseInt(ins.impressions || 0, 10);
+  const clicks   = parseInt(ins.clicks     || 0, 10);
+  const ctr      = parseFloat(ins.ctr      || 0);
+  const cpc      = parseFloat(ins.cpc      || 0);
+  const revenue  = (ins.action_values || [])
+                    .filter(a => CONFIG.CONVERSION_ACTIONS.includes(a.action_type))
+                    .reduce((s,a) => s + parseFloat(a.value || 0), 0);
+  const roas     = spend > 0 ? revenue / spend : null;
+  const dailyBud = (item.daily_budget || 0) / 100;
+
+  const compliant = [];
+  const nonCompliant = [];
+
+  /* CTR */
+  if (impr > 0) {
+    const row = { metric: 'CTR', planned: `≥ ${t.CTR_MIN}%`, actual: `${ctr.toFixed(2)}%` };
+    if (ctr >= t.CTR_MIN) compliant.push(row);
+    else nonCompliant.push({ ...row, action: 'Refresh creative or tighten audience — low CTR signals weak relevance.' });
+  }
+
+  /* CPA */
+  if (conv > 0 && cpa !== null) {
+    const row = { metric: 'CPA', planned: `≤ ₹${t.CPA_TARGET}`, actual: `₹${cpa.toFixed(2)}` };
+    if (cpa <= t.CPA_TARGET) compliant.push(row);
+    else nonCompliant.push({ ...row, action: 'Pause worst ad sets, reallocate budget to top performers, or lower bid cap.' });
+  } else if (spend > 0 && conv === 0) {
+    nonCompliant.push({ metric: 'Conversions', planned: '> 0', actual: '0',
+      action: 'Spent budget with zero conversions — check pixel events and offer-landing match.' });
+  }
+
+  /* ROAS — only if we actually have revenue data */
+  if (revenue > 0 && roas !== null) {
+    const row = { metric: 'ROAS', planned: `≥ ${t.ROAS_TARGET}x`, actual: `${roas.toFixed(2)}x` };
+    if (roas >= t.ROAS_TARGET) compliant.push(row);
+    else nonCompliant.push({ ...row, action: 'Below target return — raise AOV with bundles or trim spend on this set.' });
+  }
+
+  /* Budget pacing — only meaningful when daily budget is set */
+  if (dailyBud > 0 && APP.since && APP.until) {
+    const days = Math.max(1, (new Date(APP.until) - new Date(APP.since)) / 86400000 + 1);
+    const expected = dailyBud * days;
+    const variance = expected > 0 ? (spend - expected) / expected : 0;
+    const row = { metric: 'Budget pace',
+                  planned: `₹${expected.toFixed(0)} over ${days}d`,
+                  actual:  `₹${spend.toFixed(0)} (${variance >= 0 ? '+' : ''}${(variance*100).toFixed(0)}%)` };
+    if (Math.abs(variance) <= t.BUDGET_VARIANCE) compliant.push(row);
+    else nonCompliant.push({ ...row,
+      action: variance > 0
+        ? 'Overspending — lower daily budget or pause underperforming ad sets.'
+        : 'Underdelivering — bid is likely too low or audience too narrow.' });
+  }
+
+  return { compliant, nonCompliant, conv, cpa, roas, revenue, spend, impr, clicks, ctr, cpc, dailyBud };
+}
+
+function openAnalysis(id) {
+  const item = APP.itemCache[id];
+  if (!item) return;
+  const isCamp = !!item.objective;
+  const ins    = APP.insights[id] || {};
+  const tgt    = item.targeting ? parseTargeting(item.targeting) : null;
+  const a      = analyzeCompliance(item, ins);
+
+  /* Score against whichever tab the user is currently on */
+  const tabMetrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
+  const useRollup  = APP.view === 'setup' && isCamp;
+  const score      = useRollup
+    ? rolledUpScore(item, tabMetrics)
+    : complianceScore(item, tabMetrics);
+
+  /* Build the *itemised* Compliant / Non-Compliant lists from the SAME
+     metrics the gauge counted — so "9 need action" matches 9 visible rows. */
+  const compliantItems    = [];
+  const nonCompliantItems = [];
+  if (useRollup) {
+    /* Campaign on Setup tab → enumerate each child ad set × each KPI */
+    const children = APP.adsets.filter(c => c.campaign_id === item.id);
+    children.forEach(child => {
+      const cIns = APP.insights[child.id];
+      tabMetrics.forEach(m => {
+        if (m.appliesTo && !m.appliesTo.includes('adset')) return;
+        const r = m.evaluate(child, cIns);
+        if (r === 'na') return;
+        const row = {
+          entity:  child.name,
+          metric:  m.label,
+          planned: m.target(),
+          actual:  m.actual(child, cIns)
+        };
+        (r === 'pass' ? compliantItems : nonCompliantItems).push(row);
+      });
+    });
+  } else {
+    /* Direct evaluation — one row per applicable KPI */
+    tabMetrics.forEach(m => {
+      if (m.appliesTo && !m.appliesTo.includes(_entityType(item))) return;
+      const r = m.evaluate(item, ins);
+      if (r === 'na') return;
+      const row = {
+        metric:  m.label,
+        planned: m.target(),
+        actual:  m.actual(item, ins)
+      };
+      (r === 'pass' ? compliantItems : nonCompliantItems).push(row);
+    });
+  }
+  const pct        = score.pct;
+  const pctColor   = pct === null ? 'text-slate-400'
+                   : pct >= 80    ? 'text-emerald-500'
+                   : pct >= 50    ? 'text-amber-500'
+                   :                'text-rose-500';
+  const ringColor  = pct === null ? '#94a3b8'
+                   : pct >= 80    ? '#10b981'
+                   : pct >= 50    ? '#f59e0b'
+                   :                '#f43f5e';
+  const ringDash   = pct === null ? 0 : Math.round((pct / 100) * 144);
+
+  document.getElementById('analysisTitle').innerHTML = `
+    ${escH(item.name)}
+    <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500">${_entityKind(item)} · ${APP.view}</span>`;
+
+  /* ── Section helpers ── */
+  const sectionHead = (n, label) => `
+    <div class="flex items-center gap-2 mb-3">
+      <span class="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold">${n}</span>
+      <span class="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">${label}</span>
+    </div>`;
+
+  /* 0. Compliance gauge — lead with the headline number */
+  const gaugeHtml = `
+    <div class="flex items-center gap-5 rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/30 p-4">
+      <svg width="64" height="64" viewBox="0 0 56 56" class="shrink-0">
+        <circle cx="28" cy="28" r="23" stroke="currentColor" stroke-width="5" fill="none" class="text-slate-200 dark:text-slate-700/50"/>
+        <circle cx="28" cy="28" r="23" stroke="${ringColor}" stroke-width="5" fill="none"
+                stroke-linecap="round" stroke-dasharray="${ringDash} 144"
+                transform="rotate(-90 28 28)"/>
+        <text x="28" y="33" text-anchor="middle" class="fill-current ${pctColor}" font-size="14" font-weight="700" font-family="ui-monospace,monospace">
+          ${pct === null ? '—' : pct + '%'}
+        </text>
+      </svg>
+      <div class="flex-1">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-1">${APP.view === 'performance' ? 'Performance' : 'Setup'} Compliance</div>
+        <div class="text-sm text-slate-700 dark:text-slate-200">
+          ${pct === null
+            ? 'No applicable KPIs to evaluate yet.'
+            : `<strong class="${pctColor}">${score.pass}</strong> of <strong>${score.total}</strong> KPIs met · <strong class="text-rose-500">${score.fail}</strong> need action`}
+          ${score.isRollup ? `<span class="block text-[11px] text-slate-400 mt-0.5">Rolled up from ${score.childCount} ad set${score.childCount===1?'':'s'} (campaigns don't carry targeting)</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+
+  /* 1. KPIs — actual numbers */
+  const kpi = (label, val) => `
+    <div>
+      <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">${label}</div>
+      <div class="text-sm font-semibold text-slate-700 dark:text-slate-200 mt-0.5">${val}</div>
+    </div>`;
+  /* Revenue + CPA helpers — value/none coloring so a missing number
+     reads as "no purchase events yet" rather than a real zero. */
+  const muted = '<span class="text-slate-400 dark:text-slate-500 font-normal">—</span>';
+  const revenueStr = a.revenue > 0
+    ? `₹${a.revenue.toLocaleString('en-IN',{maximumFractionDigits:0})}`
+    : muted;
+  const cpaStr = (a.cpa !== null && a.cpa !== undefined)
+    ? `₹${a.cpa.toLocaleString('en-IN',{minimumFractionDigits:2, maximumFractionDigits:2})}`
+    : muted;
+
+  const kpisHtml = a.spend ? `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      ${kpi('Spend',         `₹${a.spend.toLocaleString('en-IN',{maximumFractionDigits:0})}`)}
+      ${kpi('Impressions',   a.impr.toLocaleString('en-IN'))}
+      ${kpi('Clicks',        a.clicks.toLocaleString('en-IN'))}
+      ${kpi('CTR',           `${a.ctr.toFixed(2)}%`)}
+      ${kpi('CPC',           `₹${a.cpc.toFixed(2)}`)}
+      ${kpi('Conversions',   a.conv || muted)}
+      ${kpi('Revenue',       revenueStr)}
+      ${kpi('CPA / Cost per Conv.', cpaStr)}
+    </div>`
+    : `<p class="text-sm text-slate-500 dark:text-slate-400">No performance data for the selected date range.</p>`;
+
+  /* 2. Target / Planned */
+  const plan = (label, val) => `
+    <div>
+      <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">${label}</div>
+      <div class="text-sm text-slate-700 dark:text-slate-200 mt-0.5">${val}</div>
+    </div>`;
+  const planRows = isCamp
+    ? [
+        plan('Objective',    objLabel(item.objective)),
+        plan('Daily Budget', a.dailyBud > 0 ? `₹${a.dailyBud.toLocaleString('en-IN')}` : '—'),
+        plan('Target CTR',   `≥ ${CONFIG.THRESHOLDS.CTR_MIN}%`),
+        plan('Target CPA',   `≤ ₹${CONFIG.THRESHOLDS.CPA_TARGET}`),
+        plan('Target ROAS',  `≥ ${CONFIG.THRESHOLDS.ROAS_TARGET}x`),
+        plan('Status',       (item.status||'').toLowerCase())
+      ]
+    : [
+        plan('Goal',         (item.optimization_goal||'').replace(/_/g,' ')),
+        plan('Daily Budget', a.dailyBud > 0 ? `₹${a.dailyBud.toLocaleString('en-IN')}` : '—'),
+        plan('Age',          tgt ? tgt.age : '—'),
+        plan('Gender',       tgt ? tgt.gender : '—'),
+        plan('Locations',    tgt ? tgt.locations : '—'),
+        plan('Interests',    tgt ? tgt.interests : '—')
+      ];
+  const plannedHtml = `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">${planRows.join('')}</div>`;
+
+  /* 3 & 4. Compliant / Non-compliant rows.
+     For rollup mode each row carries an `entity` prefix so you can see
+     which child ad set the failure belongs to. */
+  const rowHtml = (r, kind) => {
+    const dot = kind === 'pass' ? 'bg-emerald-400' : 'bg-rose-400';
+    const val = kind === 'pass'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-rose-600 dark:text-rose-400';
+    return `
+      <div class="py-2 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0">
+        <div class="flex items-start gap-3">
+          <span class="w-1.5 h-1.5 rounded-full ${dot} shrink-0 mt-1.5"></span>
+          <div class="flex-1 min-w-0">
+            ${r.entity ? `<div class="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">${escH(r.entity)}</div>` : ''}
+            <div class="flex items-baseline gap-2 flex-wrap mt-0.5">
+              <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">${escH(r.metric)}</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">target <span class="font-mono">${escH(r.planned)}</span></span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">·</span>
+              <span class="text-xs font-mono font-semibold ${val}">${escH(r.actual)}</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  const compliantHtml = compliantItems.length
+    ? compliantItems.map(r => rowHtml(r, 'pass')).join('')
+    : `<p class="text-xs text-slate-400 italic py-3">No applicable KPIs are passing yet.</p>`;
+  const nonCompliantHtml = nonCompliantItems.length
+    ? nonCompliantItems.map(r => rowHtml(r, 'fail')).join('')
+    : `<p class="text-xs text-slate-400 italic py-3">No compliance issues detected.</p>`;
+
+  /* Where the targets come from — small footnote shown under Target/Planned */
+  const sourceFootnote = APP.view === 'performance'
+    ? `Performance thresholds (CTR, CPA, ROAS, Budget Pace) are read from
+       <strong>Settings → Performance Thresholds</strong>
+       (stored in <span class="font-mono">CONFIG.THRESHOLDS</span>).
+       Budget Pace's "expected" figure is computed as
+       <span class="font-mono">daily_budget × days in selected range</span>.`
+    : `Setup checks are local rules — they pass when the targeting field
+       is intentionally configured (e.g. Age fails if it's left at Meta's
+       default 18–65, Audience Type fails if you're targeting broad-only).
+       Meta doesn't store "intended" targeting — these benchmarks live in
+       <span class="font-mono">SETUP_METRICS</span> in <span class="font-mono">index.html</span>.`;
+
+  document.getElementById('analysisContent').innerHTML = `
+    <div class="space-y-5">
+      ${gaugeHtml}
+
+      <!-- 1. KPIs -->
+      <section>
+        ${sectionHead(1, 'KPIs')}
+        <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/30 p-4">${kpisHtml}</div>
+      </section>
+
+      <!-- 2. Target / Planned -->
+      <section>
+        ${sectionHead(2, 'Target / Planned')}
+        <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/30 p-4">
+          ${plannedHtml}
+          <p class="text-[11px] text-slate-400 dark:text-slate-500 leading-relaxed mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-700/40">
+            <strong class="text-slate-500 dark:text-slate-400">Source:</strong> ${sourceFootnote}
+          </p>
+        </div>
+      </section>
+
+      <!-- 3. Compliant -->
+      <section>
+        ${sectionHead(3, `Compliant (${compliantItems.length})`)}
+        <div class="rounded-xl border border-emerald-200/40 dark:border-emerald-500/15 bg-emerald-50/40 dark:bg-emerald-500/[0.04] px-4">${compliantHtml}</div>
+      </section>
+
+      <!-- 4. Non-Compliant -->
+      <section>
+        ${sectionHead(4, `Non-Compliant (${nonCompliantItems.length})`)}
+        <div class="rounded-xl border border-rose-200/40 dark:border-rose-500/15 bg-rose-50/40 dark:bg-rose-500/[0.04] px-4">${nonCompliantHtml}</div>
+      </section>
+    </div>`;
+
+  const m = document.getElementById('analysisModal');
+  m.classList.remove('hidden');
+  m.classList.add('flex');
+}
+
+function closeAnalysis() {
+  const m = document.getElementById('analysisModal');
+  m.classList.add('hidden');
+  m.classList.remove('flex');
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  13. EXPORT                                                   */
+/* ══════════════════════════════════════════════════════════════ */
+function exportCSV() {
+  /* CSV mirrors the two on-screen matrices. For each section: one row
+     per KPI with Compliant / Non-Compliant counts, followed by detail
+     rows listing every entity in each bucket with its overall % score. */
+  const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
+  const filt = arr => {
+    let r = [...arr];
+    if (!APP.showPaused) r = r.filter(x => x.status !== 'PAUSED');
+    if (APP.searchQuery) {
+      const q = APP.searchQuery.toLowerCase();
+      r = r.filter(x => x.name?.toLowerCase().includes(q));
+    }
+    return r;
+  };
+  const campaigns = filt(APP.campaigns);
+  const adsets    = filt(APP.adsets);
+
+  const rows = [];
+
+  const writeMatrix = (heading, items, type) => {
+    rows.push([heading]);
+    rows.push(['KPI','Target Goal','Compliant (count)','Non-Compliant (count)']);
+    metrics.forEach(m => {
+      let pass = 0, fail = 0;
+      items.forEach(it => {
+        const r = evalForRow(it, m, type);
+        if (r === 'pass') pass++;
+        else if (r === 'fail') fail++;
+      });
+      rows.push([m.label, m.target(), pass, fail]);
+    });
+
+    rows.push([]);
+    rows.push([`Detail — ${heading}`]);
+    rows.push(['KPI','Result','Name','Overall %','Pass/Total']);
+    items.forEach(it => {
+      const s = (type === 'campaign' && APP.view === 'setup')
+        ? rolledUpScore(it, metrics)
+        : complianceScore(it, metrics);
+      metrics.forEach(m => {
+        const r = evalForRow(it, m, type);
+        if (r === 'na') return;
+        rows.push([
+          m.label,
+          r === 'pass' ? 'Compliant' : 'Non-Compliant',
+          it.name,
+          s.pct === null ? '' : s.pct + '%',
+          `${s.pass}/${s.total}`
+        ]);
+      });
+    });
+    rows.push([]);
+  };
+
+  writeMatrix('== Section 1: Campaigns ==', campaigns, 'campaign');
+  writeMatrix('== Section 2: Ad Sets ==',    adsets,    'adset');
+
+  const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = `compliance_${APP.view}_${APP.since || 'export'}_${APP.until || ''}.csv`;
+  a.click();
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  14. UTILITY                                                  */
+/* ══════════════════════════════════════════════════════════════ */
+function toggleTheme() {
+  APP.theme = APP.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.classList.toggle('dark', APP.theme === 'dark');
+  document.getElementById('themeIcon').textContent = APP.theme === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('metaAdsTheme', APP.theme);
+}
+function showError(msg) {
+  /* Translate Meta's terse rate-limit codes into something a human can act on. */
+  let display = msg;
+  if (/code 17\)|User request limit/i.test(msg)) {
+    display = 'Meta rate limit hit (code 17 — per-user quota). Wait 15–60 minutes, then click Refresh once. Today\'s cached data is still usable — don\'t keep clicking Refresh, every click counts against the quota.';
+  } else if (/code 4\)|Application request limit/i.test(msg)) {
+    display = 'Meta app-level rate limit hit (code 4). The whole app is throttled — wait ~1 hour before retrying.';
+  } else if (/code 32\)/i.test(msg)) {
+    display = 'Meta page-level rate limit hit (code 32). Wait ~1 hour before retrying.';
+  } else if (/code 80004\)/i.test(msg)) {
+    display = 'Meta ads-management throttled (code 80004). Wait a few minutes and retry.';
+  }
+  const b = document.getElementById('errorBanner');
+  document.getElementById('errorMsg').textContent = display;
+  b.classList.remove('hidden');
+  b.classList.add('flex');
+  /* Rate-limit messages stay longer — user needs time to read the advice. */
+  const dwell = display !== msg ? 30000 : 10000;
+  setTimeout(clearError, dwell);
+}
+function clearError() {
+  const b = document.getElementById('errorBanner');
+  b.classList.add('hidden');
+  b.classList.remove('flex');
+}
+
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  15. BOOTSTRAP                                                */
+/* ══════════════════════════════════════════════════════════════ */
+function init() {
+  /* Load persisted config from localStorage */
+  initConfig();
+
+  /* Theme — light by default, persisted preference wins */
+  const savedTheme = localStorage.getItem('metaAdsTheme') || 'light';
+  APP.theme = savedTheme;
+  document.documentElement.classList.toggle('dark', APP.theme === 'dark');
+  const themeIcon = document.getElementById('themeIcon');
+  if (themeIcon) themeIcon.textContent = APP.theme === 'dark' ? '☀️' : '🌙';
+
+  /* Default date range */
+  const range = getPresetRange(APP.datePreset);
+  APP.since = range.since;
+  APP.until = range.until;
+  updateDpTriggerLabel();
+
+  /* Close date picker on outside click or Escape */
+  document.addEventListener('click', e => {
+    if (!PICKER.open) return;
+    const popup   = document.getElementById('dpPopup');
+    const trigger = document.getElementById('dpTrigger');
+    if (popup && !popup.contains(e.target) && trigger && !trigger.contains(e.target)) {
+      closeDatePicker();
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && PICKER.open) closeDatePicker();
+  });
+
+  /* Account pill */
+  if (isConfigured()) {
+    document.getElementById('accountPill').textContent = `act_${CONFIG.META_AD_ACCOUNT_ID}`;
+    document.getElementById('accountPill').classList.remove('text-slate-500','dark:text-slate-400');
+    document.getElementById('accountPill').classList.add('text-slate-700','dark:text-slate-300');
+  }
+
+  /* Search input — debounced */
+  let searchTimer;
+  document.getElementById('searchInput').addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      APP.searchQuery = e.target.value.trim();
+      renderAll();
+    }, 200);
+  });
+
+  /* Initial render — empty placeholder until data loads */
+  document.getElementById('hierarchyHost').innerHTML =
+    `<div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-400 bg-white/80 dark:bg-slate-800/30">Load data to see the compliance hierarchy.</div>`;
+
+  /* Load or prompt for config.
+     Policy: hit Meta only on manual Refresh, or once per calendar day
+     on the first visit of the day. Otherwise restore today's cache. */
+  if (isConfigured()) {
+    const cached = loadCache();
+    if (cached && cached.date === todayStr()) {
+      restoreFromCache(cached);
+    } else {
+      loadData();
+    }
+  } else {
+    openSettings();
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+</script>
+</body>
+</html>
