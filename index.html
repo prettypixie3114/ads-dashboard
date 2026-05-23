@@ -497,7 +497,11 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  SCRIPTS                                                     -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<script src="config.js"></script>
+<!-- config.js (local, gitignored, may contain real creds) loads first.
+     config.example.js (committed, placeholders) is the fallback that
+     guarantees CONFIG is defined on the public deploy where config.js 404s. -->
+<script src="config.js" onerror="this.remove()"></script>
+<script src="config.example.js"></script>
 <script>
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -1619,17 +1623,50 @@ function closeSettings() {
   m.classList.remove('flex');
 }
 function saveSettings() {
-  CONFIG.META_ACCESS_TOKEN  = document.getElementById('cfgToken').value.trim();
-  CONFIG.META_APP_ID        = document.getElementById('cfgAppId').value.trim();
-  CONFIG.META_APP_SECRET    = document.getElementById('cfgAppSecret').value.trim();
-  CONFIG.META_AD_ACCOUNT_ID = document.getElementById('cfgAccount').value.trim().replace(/^act_/,'');
-  CONFIG.ANTHROPIC_API_KEY  = document.getElementById('cfgAnthropic').value.trim();
-  CONFIG.THRESHOLDS.ROAS_TARGET = parseFloat(document.getElementById('cfgROAS').value) || 3.0;
-  CONFIG.THRESHOLDS.CPA_TARGET  = parseFloat(document.getElementById('cfgCPA').value)  || 25.0;
-  persistConfig();
-  closeSettings();
-  document.getElementById('accountPill').textContent = `act_${CONFIG.META_AD_ACCOUNT_ID}`;
-  if (isConfigured()) loadData();
+  try {
+    /* Defensive: if config.js never loaded (e.g. deployed site with the
+       file gitignored), CONFIG is undefined and assignment would throw
+       silently. Reconstruct just enough to keep Save working. */
+    if (typeof CONFIG === 'undefined' || CONFIG === null) {
+      window.CONFIG = { THRESHOLDS: {}, API: {}, FIELDS: {}, UI: {}, CONVERSION_ACTIONS: [] };
+    }
+    CONFIG.THRESHOLDS = CONFIG.THRESHOLDS || {};
+
+    const token   = document.getElementById('cfgToken').value.trim();
+    const appId   = document.getElementById('cfgAppId').value.trim();
+    const secret  = document.getElementById('cfgAppSecret').value.trim();
+    const account = document.getElementById('cfgAccount').value.trim().replace(/^act_/,'');
+    const anth    = document.getElementById('cfgAnthropic').value.trim();
+    const roas    = parseFloat(document.getElementById('cfgROAS').value) || 3.0;
+    const cpa     = parseFloat(document.getElementById('cfgCPA').value)  || 25.0;
+
+    if (!token)                  throw new Error('Access Token is required.');
+    if (!account)                throw new Error('Ad Account ID is required.');
+    if (!/^\d+$/.test(account))  throw new Error('Ad Account ID must be digits only (no "act_" prefix).');
+
+    CONFIG.META_ACCESS_TOKEN      = token;
+    CONFIG.META_APP_ID            = appId;
+    CONFIG.META_APP_SECRET        = secret;
+    CONFIG.META_AD_ACCOUNT_ID     = account;
+    CONFIG.ANTHROPIC_API_KEY      = anth;
+    CONFIG.THRESHOLDS.ROAS_TARGET = roas;
+    CONFIG.THRESHOLDS.CPA_TARGET  = cpa;
+
+    persistConfig();
+    closeSettings();
+
+    const pill = document.getElementById('accountPill');
+    if (pill) {
+      pill.textContent = `act_${account}`;
+      pill.classList.remove('text-slate-500','dark:text-slate-400');
+      pill.classList.add('text-slate-700','dark:text-slate-300');
+    }
+
+    if (isConfigured()) loadData();
+  } catch (err) {
+    console.error('saveSettings failed:', err);
+    showError('Save failed: ' + err.message);
+  }
 }
 
 
