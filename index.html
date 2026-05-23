@@ -666,12 +666,25 @@ function parseTargeting(t) {
   const gender = (!g || g.length === 0 || g.length === 2) ? 'All'
                : g[0] === 1 ? 'Male' : 'Female';
 
-  /* Locations */
+  /* Locations — mirror every geo target type Meta supports so the
+     displayed value matches what's actually configured. A point with
+     radius (Place / Custom Location) is rendered as "Name + Xkm". */
   const geo = t.geo_locations || {};
   const locs = [];
-  if (geo.countries) locs.push(...geo.countries);
-  if (geo.regions)   locs.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
-  if (geo.cities)    locs.push(...geo.cities.map(c => c.name).filter(Boolean));
+  const fmtRadius = p => p.radius ? ` +${p.radius}${p.distance_unit || 'km'}` : '';
+  if (geo.countries)        locs.push(...geo.countries);
+  if (geo.country_groups)   locs.push(...geo.country_groups);
+  if (geo.regions)          locs.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
+  if (geo.cities)           locs.push(...geo.cities.map(c => (c.name || c.key) + fmtRadius(c)).filter(Boolean));
+  if (geo.subcities)        locs.push(...geo.subcities.map(c => c.name).filter(Boolean));
+  if (geo.places)           locs.push(...geo.places.map(p => (p.name || `(${p.latitude},${p.longitude})`) + fmtRadius(p)));
+  if (geo.custom_locations) locs.push(...geo.custom_locations.map(c => (c.name || `(${c.latitude},${c.longitude})`) + fmtRadius(c)));
+  if (geo.geo_markets)      locs.push(...geo.geo_markets.map(m => m.name).filter(Boolean));
+  if (geo.electoral_districts) locs.push(...geo.electoral_districts.map(d => d.name).filter(Boolean));
+  if (geo.metro_areas)      locs.push(...geo.metro_areas.map(m => m.name).filter(Boolean));
+  if (geo.medium_geo_areas) locs.push(...geo.medium_geo_areas.map(m => m.name).filter(Boolean));
+  if (geo.neighborhoods)    locs.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
+  if (geo.subneighborhoods) locs.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
   if (geo.zips && geo.zips.length) locs.push(`${geo.zips.length} ZIP(s)`);
   const locations = locs.length
     ? locs.slice(0,4).join(', ') + (locs.length > 4 ? ` +${locs.length-4}` : '')
@@ -903,11 +916,18 @@ const SETUP_METRICS = [
     target: () => 'At least one geo target',
     appliesTo: ['adset'],
     evaluate: item => {
+      /* Meta stores geo targeting across many sub-fields. A "Place + radius"
+         (e.g. "Ranga Reddy + 10 km") lives in `places`, a lat/lng pin in
+         `custom_locations`, DMAs in `geo_markets`, etc. Missing any of
+         these caused valid ad sets to read as "no location". */
       const geo = item.targeting?.geo_locations || {};
-      const has = (geo.countries?.length > 0) ||
-                  (geo.regions?.length > 0)   ||
-                  (geo.cities?.length > 0)    ||
-                  (geo.zips?.length > 0);
+      const GEO_KEYS = [
+        'countries','country_groups','regions','cities','subcities',
+        'zips','places','custom_locations','geo_markets',
+        'electoral_districts','metro_areas','medium_geo_areas',
+        'subneighborhoods','neighborhoods','large_geo_areas','small_geo_areas'
+      ];
+      const has = GEO_KEYS.some(k => Array.isArray(geo[k]) && geo[k].length > 0);
       return has ? 'pass' : 'fail';
     },
     actual: item => {
