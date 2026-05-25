@@ -760,17 +760,34 @@ const COUNTRY_NAMES = {
 };
 function countryName(code) { return COUNTRY_NAMES[code] || code; }
 
-/* Count excluded geo entries across all sub-fields so we can show
-   a "Excl N" hint in the locations display, matching the visual weight
-   of Meta UI's long exclusion list. */
-function countExclusions(excludedGeo) {
-  if (!excludedGeo) return 0;
-  let n = 0;
-  for (const k of Object.keys(excludedGeo)) {
-    const v = excludedGeo[k];
-    if (Array.isArray(v)) n += v.length;
-  }
-  return n;
+/* Flatten a geo_locations (or excluded_geo_locations) object into a
+   single array of display strings — one entry per actual location.
+   Only iterates the known geo sub-fields, so noise like `location_types`
+   (which is metadata, e.g. ['home','recent'], not a list of locations)
+   is correctly ignored. Shared by parseTargeting() for the "Excl N"
+   badge AND by the location metric's details() expand panel, so the
+   count and the list can't disagree. */
+function _flattenGeo(geo) {
+  if (!geo) return [];
+  const out = [];
+  const fmtRadius = p => p.radius ? ` (+${p.radius}${p.distance_unit || 'km'})` : '';
+  if (geo.countries)           out.push(...geo.countries.map(countryName));
+  if (geo.country_groups)      out.push(...geo.country_groups);
+  if (geo.regions)             out.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
+  if (geo.cities)              out.push(...geo.cities.map(c => (c.name || c.key) + fmtRadius(c)).filter(Boolean));
+  if (geo.subcities)           out.push(...geo.subcities.map(c => c.name).filter(Boolean));
+  if (geo.places)              out.push(...geo.places.map(p => (p.name || `(${p.latitude},${p.longitude})`) + fmtRadius(p)));
+  if (geo.custom_locations)    out.push(...geo.custom_locations.map(c => (c.name || `(${c.latitude},${c.longitude})`) + fmtRadius(c)));
+  if (geo.geo_markets)         out.push(...geo.geo_markets.map(m => m.name).filter(Boolean));
+  if (geo.electoral_districts) out.push(...geo.electoral_districts.map(d => d.name).filter(Boolean));
+  if (geo.metro_areas)         out.push(...geo.metro_areas.map(m => m.name).filter(Boolean));
+  if (geo.medium_geo_areas)    out.push(...geo.medium_geo_areas.map(m => m.name).filter(Boolean));
+  if (geo.large_geo_areas)     out.push(...geo.large_geo_areas.map(m => m.name).filter(Boolean));
+  if (geo.small_geo_areas)     out.push(...geo.small_geo_areas.map(m => m.name).filter(Boolean));
+  if (geo.neighborhoods)       out.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
+  if (geo.subneighborhoods)    out.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
+  if (geo.zips?.length)        out.push(...geo.zips.map(z => z.key || z.name || JSON.stringify(z)));
+  return out;
 }
 
 function parseTargeting(t) {
@@ -785,28 +802,10 @@ function parseTargeting(t) {
   const gender = (!g || g.length === 0 || g.length === 2) ? 'All'
                : g[0] === 1 ? 'Men' : 'Women';
 
-  /* Locations — mirror every geo target type Meta supports so the
-     displayed value matches what's actually configured. A point with
-     radius (Place / Custom Location) is rendered as "Name + Xkm".
-     Country codes are expanded to names (IN → India). */
-  const geo = t.geo_locations || {};
-  const locs = [];
-  const fmtRadius = p => p.radius ? ` +${p.radius}${p.distance_unit || 'km'}` : '';
-  if (geo.countries)        locs.push(...geo.countries.map(countryName));
-  if (geo.country_groups)   locs.push(...geo.country_groups);
-  if (geo.regions)          locs.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
-  if (geo.cities)           locs.push(...geo.cities.map(c => (c.name || c.key) + fmtRadius(c)).filter(Boolean));
-  if (geo.subcities)        locs.push(...geo.subcities.map(c => c.name).filter(Boolean));
-  if (geo.places)           locs.push(...geo.places.map(p => (p.name || `(${p.latitude},${p.longitude})`) + fmtRadius(p)));
-  if (geo.custom_locations) locs.push(...geo.custom_locations.map(c => (c.name || `(${c.latitude},${c.longitude})`) + fmtRadius(c)));
-  if (geo.geo_markets)      locs.push(...geo.geo_markets.map(m => m.name).filter(Boolean));
-  if (geo.electoral_districts) locs.push(...geo.electoral_districts.map(d => d.name).filter(Boolean));
-  if (geo.metro_areas)      locs.push(...geo.metro_areas.map(m => m.name).filter(Boolean));
-  if (geo.medium_geo_areas) locs.push(...geo.medium_geo_areas.map(m => m.name).filter(Boolean));
-  if (geo.neighborhoods)    locs.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
-  if (geo.subneighborhoods) locs.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
-  if (geo.zips && geo.zips.length) locs.push(`${geo.zips.length} ZIP(s)`);
-  const exclN = countExclusions(t.excluded_geo_locations);
+  /* Locations — use the shared _flattenGeo helper so the displayed
+     count, the truncated preview, and the expand panel can never drift. */
+  const locs  = _flattenGeo(t.geo_locations);
+  const exclN = _flattenGeo(t.excluded_geo_locations).length;
   const inclStr = locs.length
     ? locs.slice(0,4).join(', ') + (locs.length > 4 ? ` +${locs.length-4}` : '')
     : '—';
@@ -1058,31 +1057,12 @@ const SETUP_METRICS = [
       return t.locations;
     },
     /* Expanded view: full lists of included AND excluded geo entries,
-       so clicking "Excl 59" on the row reveals all 59 by name. */
+       so clicking "Excl 59" on the row reveals all 59 by name. Shares
+       _flattenGeo with parseTargeting so the count and list always agree. */
     details: item => {
-      const fmtRadius = p => p.radius ? ` (+${p.radius}${p.distance_unit || 'km'})` : '';
-      const flatten = geo => {
-        if (!geo) return [];
-        const out = [];
-        if (geo.countries)        out.push(...geo.countries.map(countryName));
-        if (geo.country_groups)   out.push(...geo.country_groups);
-        if (geo.regions)          out.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
-        if (geo.cities)           out.push(...geo.cities.map(c => (c.name || c.key) + fmtRadius(c)).filter(Boolean));
-        if (geo.subcities)        out.push(...geo.subcities.map(c => c.name).filter(Boolean));
-        if (geo.places)           out.push(...geo.places.map(p => (p.name || `(${p.latitude},${p.longitude})`) + fmtRadius(p)));
-        if (geo.custom_locations) out.push(...geo.custom_locations.map(c => (c.name || `(${c.latitude},${c.longitude})`) + fmtRadius(c)));
-        if (geo.geo_markets)      out.push(...geo.geo_markets.map(m => m.name).filter(Boolean));
-        if (geo.electoral_districts) out.push(...geo.electoral_districts.map(d => d.name).filter(Boolean));
-        if (geo.metro_areas)      out.push(...geo.metro_areas.map(m => m.name).filter(Boolean));
-        if (geo.medium_geo_areas) out.push(...geo.medium_geo_areas.map(m => m.name).filter(Boolean));
-        if (geo.neighborhoods)    out.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
-        if (geo.subneighborhoods) out.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
-        if (geo.zips?.length)     out.push(...geo.zips.map(z => z.key || z.name || JSON.stringify(z)));
-        return out;
-      };
       const t = item.targeting || {};
-      const incl = flatten(t.geo_locations);
-      const excl = flatten(t.excluded_geo_locations);
+      const incl = _flattenGeo(t.geo_locations);
+      const excl = _flattenGeo(t.excluded_geo_locations);
       const out = {};
       if (incl.length > 4) out['Included locations'] = incl;
       if (excl.length)     out['Excluded locations'] = excl;
