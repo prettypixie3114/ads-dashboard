@@ -464,9 +464,61 @@
         </div>
       </div>
     </div>
+    <div class="px-6 pb-2">
+      <button onclick="openBakeDialog()" class="text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 flex items-center gap-1.5 transition">
+        <span>🔐</span><span>Bake &amp; Lock these credentials</span>
+      </button>
+      <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Encrypts the above with a passphrase so anyone with that passphrase can load the dashboard without typing credentials.</p>
+    </div>
     <div class="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
       <button onclick="closeSettings()" class="flex-1 text-sm font-medium px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Cancel</button>
       <button onclick="saveSettings()" class="flex-1 text-sm font-semibold px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 transition">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  BAKE & LOCK MODAL  (encrypt credentials into a bundle)      -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="bakeModal" class="hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+      <h3 class="font-semibold text-sm">Bake &amp; Lock Credentials</h3>
+      <button onclick="closeBake()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
+    </div>
+
+    <!-- Step 1: choose passphrase -->
+    <div id="bakeStep1" class="px-6 py-5 space-y-4">
+      <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+        Encrypts your current credentials with a passphrase using AES-GCM. Paste the resulting bundle into
+        <code class="text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">index.html</code> at the
+        <code class="text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">BAKED_CREDENTIALS_BUNDLE</code> constant,
+        then commit &amp; push. Visitors only need the passphrase — no credentials to type.
+      </p>
+      <div>
+        <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Passphrase</label>
+        <input id="bakeInput" type="password" placeholder="At least 8 characters"
+          onkeydown="if(event.key==='Enter') runBake()"
+          class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+        <p id="bakeError" class="hidden mt-2 text-xs text-red-500"></p>
+      </div>
+    </div>
+
+    <!-- Step 2: show bundle -->
+    <div id="bakeStep2" class="hidden px-6 py-5 space-y-3">
+      <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+        Replace <code class="text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">const BAKED_CREDENTIALS_BUNDLE = null;</code> in
+        <code class="text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">index.html</code> with the line below, then commit &amp; push.
+      </p>
+      <textarea id="bakeOutput" readonly rows="7"
+        class="w-full text-[10px] font-mono px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white resize-none"></textarea>
+      <button id="bakeCopyBtn" onclick="copyBake()" class="text-xs font-medium px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition">Copy bundle</button>
+    </div>
+
+    <div class="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
+      <button onclick="closeBake()" class="flex-1 text-sm font-medium px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Close</button>
+      <button id="bakeGoBtn" onclick="runBake()" class="flex-1 text-sm font-semibold px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 transition">Encrypt</button>
     </div>
   </div>
 </div>
@@ -482,7 +534,7 @@
         <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">🔒</div>
         <div>
           <h3 class="font-semibold text-sm">Restricted</h3>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400">Enter passphrase to access Settings</p>
+          <p id="unlockHint" class="text-[11px] text-slate-500 dark:text-slate-400">Enter passphrase to access Settings</p>
         </div>
       </div>
       <input id="unlockInput" type="password" placeholder="Passphrase"
@@ -1650,12 +1702,13 @@ function openSettings() {
   const m = document.getElementById('settingsModal');
   m.classList.remove('hidden');
   m.classList.add('flex');
-  document.getElementById('cfgToken').value    = CONFIG.META_ACCESS_TOKEN;
-  document.getElementById('cfgAppId').value    = CONFIG.META_APP_ID;
-  document.getElementById('cfgAppSecret').value = CONFIG.META_APP_SECRET;
-  document.getElementById('cfgAccount').value  = CONFIG.META_AD_ACCOUNT_ID;
-  document.getElementById('cfgROAS').value     = CONFIG.THRESHOLDS.ROAS_TARGET;
-  document.getElementById('cfgCPA').value      = CONFIG.THRESHOLDS.CPA_TARGET;
+  const real = s => (s && !String(s).startsWith('YOUR_') ? s : '');
+  document.getElementById('cfgToken').value    = real(CONFIG.META_ACCESS_TOKEN);
+  document.getElementById('cfgAppId').value    = real(CONFIG.META_APP_ID);
+  document.getElementById('cfgAppSecret').value = real(CONFIG.META_APP_SECRET);
+  document.getElementById('cfgAccount').value  = real(CONFIG.META_AD_ACCOUNT_ID);
+  document.getElementById('cfgROAS').value     = CONFIG.THRESHOLDS.ROAS_TARGET || '';
+  document.getElementById('cfgCPA').value      = CONFIG.THRESHOLDS.CPA_TARGET || '';
 }
 function closeSettings() {
   const m = document.getElementById('settingsModal');
@@ -1663,20 +1716,71 @@ function closeSettings() {
   m.classList.remove('flex');
 }
 
-/* ── Passphrase gate ─────────────────────────────────────────────
-   Default passphrase: "Reveal@2026". To change, hash a new passphrase
-   with SHA-256 and replace SETTINGS_PASS_HASH below.
-     PowerShell:  $b=[Text.Encoding]::UTF8.GetBytes("YourPass"); -join ([Security.Cryptography.SHA256]::Create().ComputeHash($b) | %{ $_.ToString("x2") })
-     Bash:        printf 'YourPass' | sha256sum
-   Note: this is a client-side gate. It stops casual visitors, not
-   anyone with DevTools. Real secrecy requires server-side auth. */
-const SETTINGS_PASS_HASH = 'a5c248a38a9857d077994ece7d68c33637528ef905a68bbabf82ec9f4c0d3c7a';
+/* ══════════════════════════════════════════════════════════════ */
+/*  11b. PASSPHRASE GATE + ENCRYPTED CREDENTIALS BUNDLE          */
+/* ══════════════════════════════════════════════════════════════ */
 
+/* ── Encrypted credentials bundle ─────────────────────────────────
+   When BAKED_CREDENTIALS_BUNDLE is a string (not null), the unlock
+   passphrase will *decrypt* it (AES-GCM, PBKDF2-derived key) and
+   populate CONFIG automatically. Visitors only need the passphrase
+   — they never type credentials. The ciphertext in source code is
+   useless without the passphrase (AES-GCM is authenticated).
+
+   To produce the bundle: open the deployed site once locally, fill
+   in your real credentials via Settings, click "🔐 Bake & Lock",
+   copy the printed string, and paste it below in place of `null`.
+   Commit + push.
+
+   Fallback (when bundle is null): the legacy SHA-256 hash gates the
+   Settings modal so the owner can enter credentials and bake the
+   first bundle. Once a bundle is baked, the hash is unused. */
+const BAKED_CREDENTIALS_BUNDLE = null;
+const SETTINGS_PASS_HASH       = 'a5c248a38a9857d077994ece7d68c33637528ef905a68bbabf82ec9f4c0d3c7a'; /* default: "Reveal@2026" */
+
+/* ── Crypto helpers ────────────────────────────────────────────── */
 async function sha256Hex(s) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
+async function deriveAesKey(passphrase, salt) {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false, ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptCredsBundle(plainObj, passphrase) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await deriveAesKey(passphrase, salt);
+  const pt   = new TextEncoder().encode(JSON.stringify(plainObj));
+  const ct   = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, pt);
+  return btoa(JSON.stringify({
+    s: Array.from(salt),
+    i: Array.from(iv),
+    c: Array.from(new Uint8Array(ct))
+  }));
+}
+
+async function decryptCredsBundle(bundle, passphrase) {
+  const o    = JSON.parse(atob(bundle));
+  const key  = await deriveAesKey(passphrase, new Uint8Array(o.s));
+  const pt   = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(o.i) },
+    key,
+    new Uint8Array(o.c)
+  );
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* ── Unlock modal flow ─────────────────────────────────────────── */
 function unlockSettings() {
   if (sessionStorage.getItem('metaAdsUnlocked') === '1') {
     openSettings();
@@ -1685,6 +1789,10 @@ function unlockSettings() {
   const m = document.getElementById('unlockModal');
   m.classList.remove('hidden');
   m.classList.add('flex');
+  const hint = document.getElementById('unlockHint');
+  if (hint) hint.textContent = BAKED_CREDENTIALS_BUNDLE
+    ? 'Enter passphrase to unlock the dashboard'
+    : 'Enter passphrase to access Settings';
   const err = document.getElementById('unlockError');
   if (err) err.classList.add('hidden');
   const inp = document.getElementById('unlockInput');
@@ -1700,15 +1808,110 @@ function closeUnlock() {
 async function submitUnlock() {
   const inp = document.getElementById('unlockInput');
   const err = document.getElementById('unlockError');
-  const hash = await sha256Hex(inp.value);
+  const passphrase = inp.value;
+  if (!passphrase) return;
+
+  /* Path A: a baked bundle exists — try to decrypt and auto-load. */
+  if (BAKED_CREDENTIALS_BUNDLE) {
+    try {
+      const creds = await decryptCredsBundle(BAKED_CREDENTIALS_BUNDLE, passphrase);
+      CONFIG.META_ACCESS_TOKEN  = creds.t  || CONFIG.META_ACCESS_TOKEN;
+      CONFIG.META_APP_ID        = creds.ai || CONFIG.META_APP_ID;
+      CONFIG.META_APP_SECRET    = creds.as || CONFIG.META_APP_SECRET;
+      CONFIG.META_AD_ACCOUNT_ID = creds.ac || CONFIG.META_AD_ACCOUNT_ID;
+      if (creds.th) Object.assign(CONFIG.THRESHOLDS, creds.th);
+      persistConfig();
+      sessionStorage.setItem('metaAdsUnlocked', '1');
+      closeUnlock();
+      const pill = document.getElementById('accountPill');
+      if (pill) {
+        pill.textContent = `act_${CONFIG.META_AD_ACCOUNT_ID}`;
+        pill.classList.remove('text-slate-500','dark:text-slate-400');
+        pill.classList.add('text-slate-700','dark:text-slate-300');
+      }
+      loadData();
+    } catch (_) {
+      err.textContent = 'Incorrect passphrase.';
+      err.classList.remove('hidden');
+      inp.value = '';
+      inp.focus();
+    }
+    return;
+  }
+
+  /* Path B: no bundle baked — fall back to hash gate, opens Settings
+     so the owner can enter credentials and bake the first bundle. */
+  const hash = await sha256Hex(passphrase);
   if (hash === SETTINGS_PASS_HASH) {
     sessionStorage.setItem('metaAdsUnlocked', '1');
     closeUnlock();
     openSettings();
   } else {
+    err.textContent = 'Incorrect passphrase.';
     err.classList.remove('hidden');
     inp.value = '';
     inp.focus();
+  }
+}
+
+/* ── Bake & Lock dialog ────────────────────────────────────────── */
+function openBakeDialog() {
+  if (!isConfigured()) {
+    showError('Fill in credentials and click Save first, then come back to bake.');
+    return;
+  }
+  const m = document.getElementById('bakeModal');
+  m.classList.remove('hidden');
+  m.classList.add('flex');
+  document.getElementById('bakeStep1').classList.remove('hidden');
+  document.getElementById('bakeStep2').classList.add('hidden');
+  document.getElementById('bakeError').classList.add('hidden');
+  document.getElementById('bakeGoBtn').classList.remove('hidden');
+  const inp = document.getElementById('bakeInput');
+  inp.value = '';
+  setTimeout(() => inp.focus(), 50);
+}
+
+function closeBake() {
+  const m = document.getElementById('bakeModal');
+  m.classList.add('hidden');
+  m.classList.remove('flex');
+}
+
+async function runBake() {
+  const inp = document.getElementById('bakeInput');
+  const err = document.getElementById('bakeError');
+  const passphrase = inp.value;
+  if (!passphrase || passphrase.length < 8) {
+    err.textContent = 'Use a passphrase of at least 8 characters.';
+    err.classList.remove('hidden');
+    return;
+  }
+  const bundle = await encryptCredsBundle({
+    t:  CONFIG.META_ACCESS_TOKEN,
+    ai: CONFIG.META_APP_ID,
+    as: CONFIG.META_APP_SECRET,
+    ac: CONFIG.META_AD_ACCOUNT_ID,
+    th: CONFIG.THRESHOLDS
+  }, passphrase);
+  document.getElementById('bakeOutput').value = bundle;
+  document.getElementById('bakeStep1').classList.add('hidden');
+  document.getElementById('bakeStep2').classList.remove('hidden');
+  document.getElementById('bakeGoBtn').classList.add('hidden');
+}
+
+async function copyBake() {
+  const ta  = document.getElementById('bakeOutput');
+  const btn = document.getElementById('bakeCopyBtn');
+  try {
+    await navigator.clipboard.writeText(ta.value);
+  } catch (_) {
+    ta.select();
+    document.execCommand('copy');
+  }
+  if (btn) {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy bundle'; }, 1500);
   }
 }
 function saveSettings() {
