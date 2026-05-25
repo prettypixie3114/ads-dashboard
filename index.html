@@ -1341,7 +1341,7 @@ function renderKPIs() {
 /*  9. DATA LOADING                                              */
 /* ══════════════════════════════════════════════════════════════ */
 async function loadData() {
-  if (!isConfigured()) { unlockSettings(); return; }
+  if (!isConfigured()) { promptUnlock(); return; }
   if (APP.loading) return;
 
   APP.loading = true;
@@ -1782,14 +1782,13 @@ async function decryptCredsBundle(bundle, passphrase) {
 }
 
 /* ── Unlock modal flow ─────────────────────────────────────────── */
-function unlockSettings() {
-  if (sessionStorage.getItem('metaAdsUnlocked') === '1') {
-    openSettings();
-    return;
-  }
+/* promptUnlock() ALWAYS shows the unlock modal. Used by init() and
+   loadData() so visitors always see the passphrase prompt, never
+   the credential form (which is admin-only). Uses inline style.display
+   to win over Tailwind's .hidden / .flex CSS-specificity tie. */
+function promptUnlock() {
   const m = document.getElementById('unlockModal');
-  m.classList.remove('hidden');
-  m.classList.add('flex');
+  if (!m) return;
   const hint = document.getElementById('unlockHint');
   if (hint) hint.textContent = (BAKED_CREDENTIALS_BUNDLE && !APP.admin)
     ? 'Enter passphrase to unlock the dashboard'
@@ -1798,12 +1797,28 @@ function unlockSettings() {
   if (err) err.classList.add('hidden');
   const inp = document.getElementById('unlockInput');
   if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
+  m.classList.remove('hidden');
+  m.classList.add('flex');
+  m.style.display = 'flex';
+}
+
+/* unlockSettings(): admin entry point from the ⚙ button. For an admin
+   who already unlocked this session, jump straight to Settings. For
+   anyone else (incl. non-admin who somehow gets here), prompt. */
+function unlockSettings() {
+  if (APP.admin && sessionStorage.getItem('metaAdsUnlocked') === '1') {
+    openSettings();
+    return;
+  }
+  promptUnlock();
 }
 
 function closeUnlock() {
   const m = document.getElementById('unlockModal');
+  if (!m) return;
   m.classList.add('hidden');
   m.classList.remove('flex');
+  m.style.display = 'none';
 }
 
 async function submitUnlock() {
@@ -2455,7 +2470,7 @@ function init() {
       loadData();
     }
   } else {
-    unlockSettings();
+    promptUnlock();
   }
 }
 
