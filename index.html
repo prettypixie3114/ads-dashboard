@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="overflow-x-hidden">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Meta Ads Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -24,6 +24,19 @@
   </script>
   <style>
     :root { --brand: #6366f1; }
+
+    /* Safe-area insets for notched phones (iPhone X+, modern Androids).
+       Nav respects the top notch; full-screen modals respect bottom home bar. */
+    nav.sticky { padding-top: env(safe-area-inset-top); height: calc(56px + env(safe-area-inset-top)); }
+    #analysisModal > div, #unlockModal > div, #settingsModal > div, #bakeModal > div {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    @media (min-width: 640px) {
+      nav.sticky { height: 56px; padding-top: 0; }
+      #analysisModal > div, #unlockModal > div, #settingsModal > div, #bakeModal > div {
+        padding-bottom: 0;
+      }
+    }
 
     /* ── Eye-comfort dark theme overrides ──
        Drop the harsh pure-blacks for warm slate tones, and reduce
@@ -102,6 +115,35 @@
       border-right: 1px solid rgba(148,163,184,0.15);
     }
     html.dark .dp-presets { border-right-color: rgba(148,163,184,0.10); }
+
+    /* Phones: presets become horizontal chips above the calendar, popup
+       fills viewport width minus a small margin, single month only. */
+    @media (max-width: 639px) {
+      .dp-popup {
+        position: fixed !important;
+        top: 50% !important; left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: calc(100vw - 1.5rem) !important;
+        min-width: 0 !important;
+        max-width: 380px;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        flex-direction: column !important;
+      }
+      .dp-presets {
+        flex-direction: row !important;
+        overflow-x: auto;
+        min-width: 0 !important;
+        border-right: none !important;
+        border-bottom: 1px solid rgba(148,163,184,0.15);
+        padding: 8px 10px;
+        gap: 6px;
+      }
+      .dp-preset { white-space: nowrap; padding: 8px 12px; min-height: 36px; }
+      .dp-cals-row { flex-direction: column; gap: 14px !important; }
+      .dp-cal { width: 100% !important; }
+      .dp-day { height: 38px; font-size: 13px; }
+    }
     .dp-preset {
       text-align: left; padding: 7px 12px;
       font-size: 12px; font-weight: 500;
@@ -258,7 +300,7 @@
   </style>
 </head>
 
-<body class="bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 min-h-screen antialiased">
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 min-h-screen antialiased overflow-x-hidden">
 
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  NAVBAR                                                       -->
@@ -271,24 +313,24 @@
       <path d="M25.1 23.1l.8-5.1h-4.9v-3.3c0-1.4.7-2.7 2.8-2.7h2.2V7.5s-2-.3-3.9-.3c-4 0-6.6 2.4-6.6 6.8V18h-4.5v5.1h4.5V36c.9.1 1.8.2 2.8.2s1.9-.1 2.8-.2V23.1h3.9z" fill="#fff"/>
     </svg>
     <span class="font-semibold text-sm tracking-tight hidden sm:block text-slate-800 dark:text-slate-200">Meta Ads Dashboard</span>
-    <span id="accountPill" class="hidden sm:block font-mono text-[11px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 rounded-full truncate max-w-[160px]">Not configured</span>
+    <span id="accountPill" class="hidden md:block font-mono text-[11px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 rounded-full truncate max-w-[160px]">Not configured</span>
   </div>
 
   <!-- Right: status · refresh · theme · settings -->
-  <div class="ml-auto flex items-center gap-2">
-    <span id="lastRefresh" class="hidden sm:block text-xs text-slate-400 dark:text-slate-500 mr-1"></span>
+  <div class="ml-auto flex items-center gap-1.5 sm:gap-2">
+    <span id="lastRefresh" class="hidden md:block text-xs text-slate-400 dark:text-slate-500 mr-1"></span>
     <span id="loadingDot" class="hidden h-2 w-2 rounded-full bg-slate-400 animate-pulse"></span>
-    <button id="refreshBtn" onclick="loadData()"
-      class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 transition-colors">
-      <svg id="refreshIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-      Refresh
+    <button id="refreshBtn" onclick="loadData()" aria-label="Refresh data"
+      class="flex items-center gap-1.5 text-xs font-medium min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 transition-colors">
+      <svg id="refreshIcon" class="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      <span class="hidden sm:inline">Refresh</span>
     </button>
-    <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme"
-      class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors text-base">
+    <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme"
+      class="min-w-[40px] min-h-[40px] inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors text-base">
       <span id="themeIcon">🌙</span>
     </button>
-    <button id="settingsBtn" onclick="unlockSettings()" title="Settings" style="display:none"
-      class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">
+    <button id="settingsBtn" onclick="unlockSettings()" title="Settings" aria-label="Open admin settings" style="display:none"
+      class="min-w-[40px] min-h-[40px] inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
     </button>
   </div>
@@ -348,59 +390,59 @@
 
   <!-- ── Search + filter toggles + Export ── -->
   <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-    <!-- Search -->
-    <div class="relative w-full sm:w-auto">
-      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+    <!-- Search: full-width on phone, fixed at sm:; text-base prevents iOS focus zoom -->
+    <div class="relative w-full sm:w-auto sm:flex-1 sm:max-w-md">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-3.5 sm:h-3.5 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
       <input id="searchInput" type="text" placeholder="Search campaigns / ad sets…"
-        class="pl-8 pr-3 py-2 text-sm rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-slate-400/60 outline-none w-full sm:w-64 transition">
+        class="pl-9 sm:pl-8 pr-3 py-2.5 sm:py-2 text-base sm:text-sm rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-slate-400/60 outline-none w-full transition">
     </div>
 
-    <!-- Active-only toggle -->
-    <label class="inline-flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 cursor-pointer select-none transition hover:border-slate-400/60">
-      <input id="pausedToggle" type="checkbox" class="accent-slate-500 w-3.5 h-3.5" onchange="togglePaused(this.checked)">
+    <!-- Active-only toggle: bigger tap target on phone -->
+    <label class="inline-flex items-center gap-2 text-xs sm:text-xs font-medium px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 cursor-pointer select-none transition hover:border-slate-400/60 flex-1 sm:flex-none justify-center sm:justify-start">
+      <input id="pausedToggle" type="checkbox" class="accent-slate-500 w-4 h-4 sm:w-3.5 sm:h-3.5" onchange="togglePaused(this.checked)">
       <span>Show paused</span>
     </label>
 
-    <button onclick="exportCSV()" title="Export CSV"
-      class="ml-auto flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300 transition">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+    <button onclick="exportCSV()" title="Export CSV" aria-label="Export CSV"
+      class="sm:ml-auto flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300 transition flex-1 sm:flex-none">
+      <svg class="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
       Export CSV
     </button>
   </div>
 
   <!-- ── KPI Cards (Performance view only) ── -->
   <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-3">
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Total Spend</div>
-      <div id="kpiSpend" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiSpend" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total revenue minus total ad spend">Net Revenue</div>
-      <div id="kpiNetRevenue" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiNetRevenue" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
-      <div id="kpiImpressions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiImpressions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Clicks</div>
-      <div id="kpiClicks" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiClicks" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Avg CTR</div>
-      <div id="kpiCTR" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiCTR" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Avg CPC</div>
-      <div id="kpiCPC" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiCPC" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Conversions</div>
-      <div id="kpiConversions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiConversions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Revenue ÷ Spend">ROAS</div>
-      <div id="kpiROAS" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+      <div id="kpiROAS" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
   </div>
 
@@ -423,8 +465,8 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  SETTINGS MODAL                                              -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="settingsModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
-  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+<div id="settingsModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
+  <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-md max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
       <h3 class="font-semibold text-base">API Configuration</h3>
       <button onclick="closeSettings()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
@@ -437,24 +479,24 @@
           <div>
             <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Access Token <span class="text-red-500">*</span></label>
             <input id="cfgToken" type="password" placeholder="EAAB…"
-              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+              class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">App ID</label>
               <input id="cfgAppId" type="text" placeholder="123456…"
-                class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+                class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
             </div>
             <div>
               <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">App Secret</label>
               <input id="cfgAppSecret" type="password" placeholder="a1b2c3…"
-                class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+                class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
             </div>
           </div>
           <div>
             <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Ad Account ID <span class="text-red-500">*</span> <span class="text-gray-400">(digits only)</span></label>
             <input id="cfgAccount" type="text" placeholder="123456789"
-              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+              class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
           </div>
         </div>
       </div>
@@ -468,12 +510,12 @@
           <div>
             <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Target ROAS</label>
             <input id="cfgROAS" type="number" step="0.1" placeholder="3.0"
-              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+              class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
           </div>
           <div>
             <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Target CPA (₹)</label>
             <input id="cfgCPA" type="number" step="0.5" placeholder="25"
-              class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+              class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
           </div>
         </div>
       </div>
@@ -495,8 +537,8 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  BAKE & LOCK MODAL  (encrypt credentials into a bundle)      -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="bakeModal" class="hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm items-center justify-center p-4">
-  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+<div id="bakeModal" class="hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
+  <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-lg max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
       <h3 class="font-semibold text-sm">Bake &amp; Lock Credentials</h3>
       <button onclick="closeBake()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
@@ -514,7 +556,7 @@
         <label class="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Passphrase</label>
         <input id="bakeInput" type="password" placeholder="At least 8 characters"
           onkeydown="if(event.key==='Enter') runBake()"
-          class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+          class="w-full text-base sm:text-xs px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
         <p id="bakeError" class="hidden mt-2 text-xs text-red-500"></p>
       </div>
     </div>
@@ -526,7 +568,7 @@
         <code class="text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">index.html</code> with the line below, then commit &amp; push.
       </p>
       <textarea id="bakeOutput" readonly rows="7"
-        class="w-full text-[10px] font-mono px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white resize-none"></textarea>
+        class="w-full text-[10px] font-mono px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white resize-none break-all" style="-webkit-text-size-adjust:100%"></textarea>
       <button id="bakeCopyBtn" onclick="copyBake()" class="text-xs font-medium px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition">Copy bundle</button>
     </div>
 
@@ -541,8 +583,8 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  UNLOCK MODAL  (passphrase gate before Settings)             -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="unlockModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
-  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm">
+<div id="unlockModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
+  <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-sm max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto flex flex-col">
     <div class="px-6 py-5">
       <div class="flex items-center gap-3 mb-3">
         <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">🔒</div>
@@ -556,7 +598,8 @@
       </p>
       <input id="unlockInput" type="password" placeholder="Passphrase"
         onkeydown="if(event.key==='Enter') submitUnlock()"
-        class="w-full text-sm px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+        autocomplete="off"
+        class="w-full text-base sm:text-sm px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
       <p id="unlockError" class="hidden mt-2 text-xs text-red-500">Incorrect passphrase.</p>
     </div>
     <div class="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
@@ -570,17 +613,21 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  ANALYSIS MODAL                                              -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="analysisModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
-  <div class="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden">
-    <div class="flex items-start justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
-      <div>
+<div id="analysisModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
+  <div class="relative bg-white dark:bg-gray-900 shadow-2xl flex flex-col overflow-hidden
+              w-full h-screen sm:h-auto
+              max-w-none sm:max-w-xl
+              max-h-screen sm:max-h-[88vh]
+              rounded-none sm:rounded-2xl">
+    <div class="flex items-start justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
+      <div class="min-w-0 flex-1">
         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-0.5">Planned vs Actual</p>
-        <h3 id="analysisTitle" class="font-semibold text-base leading-snug"></h3>
+        <h3 id="analysisTitle" class="font-semibold text-sm sm:text-base leading-snug"></h3>
       </div>
-      <button onclick="closeAnalysis()" class="mt-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none shrink-0">✕</button>
+      <button onclick="closeAnalysis()" aria-label="Close" class="ml-2 -mr-1 -mt-1 w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
     </div>
     <div id="analysisScroller" class="relative flex-1 overflow-y-auto" onscroll="updateAnalysisFade()">
-      <div id="analysisContent" class="px-6 py-5 space-y-4"></div>
+      <div id="analysisContent" class="px-4 sm:px-6 py-4 sm:py-5 space-y-4"></div>
     </div>
     <!-- Bottom fade: subtle gradient hint that more content exists below
          the fold. Toggled by updateAnalysisFade() based on scroll position. -->
@@ -1314,17 +1361,20 @@ function entityComplianceRow(item, type) {
             onclick="event.stopPropagation(); openAnalysis('${item.id}')"
             title="${escH(pctTip)}"
             aria-label="${escH(pctTip)} — click to open Planned vs Actual"
-            class="w-full text-left flex items-center gap-3 py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 transition group">
-      <span class="text-xs font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white" title="${escH(item.name)}">${escH(item.name)}</span>
-      <div class="flex items-center gap-2 shrink-0 w-[160px]" title="${escH(pctTip)}">
-        <div class="flex-1 h-1 bg-slate-200 dark:bg-slate-700/50 rounded-full overflow-hidden">
+            class="w-full text-left flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 py-2 sm:py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 transition group min-h-[44px] sm:min-h-0">
+      <div class="flex items-center gap-2 sm:contents min-w-0 sm:min-w-0">
+        <span class="text-xs font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white" title="${escH(item.name)}">${escH(item.name)}</span>
+        <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 sm:hidden transition" aria-hidden="true">›</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 w-full sm:w-[160px]" title="${escH(pctTip)}">
+        <div class="flex-1 h-1.5 sm:h-1 bg-slate-200 dark:bg-slate-700/50 rounded-full overflow-hidden">
           <div class="h-full ${barColor} rounded-full" style="width:${pct === null ? 0 : pct}%"></div>
         </div>
         <span class="text-[11px] font-mono font-semibold ${pctTxt} w-12 text-right">
           ${pct === null ? '—' : pct + '%'}
         </span>
       </div>
-      <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 transition" aria-hidden="true">›</span>
+      <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 hidden sm:inline transition" aria-hidden="true">›</span>
     </button>`;
 }
 
@@ -1360,62 +1410,93 @@ function toggleCell(sectionKey, metricId, kind) {
 
 function renderMatrixSection(title, subtitle, items, type, sectionKey) {
   const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
+  const tabLabel = APP.view === 'performance' ? 'Performance' : 'Setup';
 
-  /* Build one row per KPI */
-  const tbody = metrics.map(m => {
+  /* Compute per-KPI buckets ONCE, then render twice — once as a
+     desktop <tr>, once as a mobile card. Same data → no drift. */
+  const rowsData = metrics.map(m => {
     const compliant = [], nonCompliant = [];
     items.forEach(it => {
       const r = evalForRow(it, m, type);
       if (r === 'pass')      compliant.push(it);
       else if (r === 'fail') nonCompliant.push(it);
     });
-    const expC = APP.expandedCells[`${sectionKey}_${m.id}_pass`];
-    const expN = APP.expandedCells[`${sectionKey}_${m.id}_fail`];
-    return `
+    return {
+      m, compliant, nonCompliant,
+      expC: APP.expandedCells[`${sectionKey}_${m.id}_pass`],
+      expN: APP.expandedCells[`${sectionKey}_${m.id}_fail`]
+    };
+  });
+
+  const entityListPanel = (rows, kind, m, exp) => exp
+    ? `<div id="panel_${sectionKey}_${m.id}_${kind}" role="region" aria-label="${kind === 'pass' ? 'Compliant' : 'Non-compliant'} ${m.label}" class="mt-3 space-y-0.5 max-h-72 overflow-y-auto pr-1">
+         <div class="flex items-center gap-3 px-2 pb-1 text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold border-b border-slate-200/40 dark:border-slate-700/30">
+           <span class="flex-1">Entity</span>
+           <span class="w-20 sm:w-[160px]" title="Per-entity compliance score: KPIs passing ÷ KPIs applicable">${tabLabel} %</span>
+           <span class="w-3" aria-hidden="true"></span>
+         </div>
+         ${rows.map(it => entityComplianceRow(it, type)).join('')}
+       </div>`
+    : '';
+
+  /* Desktop row (≥ lg) */
+  const tbody = rowsData.map(d => `
       <tr class="border-b border-slate-200/40 dark:border-slate-700/30 align-top">
         <td class="px-4 py-4">
-          <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">${m.label}</div>
+          <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">${d.m.label}</div>
         </td>
         <td class="px-4 py-4">
-          <div class="text-sm font-mono text-slate-600 dark:text-slate-400">${m.target()}</div>
+          <div class="text-sm font-mono text-slate-600 dark:text-slate-400">${d.m.target()}</div>
         </td>
         <td class="px-4 py-4">
-          ${complianceCellButton(sectionKey, m.id, compliant.length, 'pass')}
-          ${expC ? `<div id="panel_${sectionKey}_${m.id}_pass" role="region" aria-label="Compliant ${m.label}" class="mt-3 space-y-0.5 max-h-72 overflow-y-auto pr-1">
-              <div class="flex items-center gap-3 px-2 pb-1 text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold border-b border-slate-200/40 dark:border-slate-700/30">
-                <span class="flex-1">Entity</span>
-                <span class="w-[160px]" title="Per-entity compliance score: KPIs passing ÷ KPIs applicable">${APP.view === 'performance' ? 'Performance' : 'Setup'} Compliance %</span>
-                <span class="w-3" aria-hidden="true"></span>
-              </div>
-              ${compliant.map(it => entityComplianceRow(it, type)).join('')}
-            </div>` : ''}
+          ${complianceCellButton(sectionKey, d.m.id, d.compliant.length, 'pass')}
+          ${entityListPanel(d.compliant, 'pass', d.m, d.expC)}
         </td>
         <td class="px-4 py-4">
-          ${complianceCellButton(sectionKey, m.id, nonCompliant.length, 'fail')}
-          ${expN ? `<div id="panel_${sectionKey}_${m.id}_fail" role="region" aria-label="Non-compliant ${m.label}" class="mt-3 space-y-0.5 max-h-72 overflow-y-auto pr-1">
-              <div class="flex items-center gap-3 px-2 pb-1 text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold border-b border-slate-200/40 dark:border-slate-700/30">
-                <span class="flex-1">Entity</span>
-                <span class="w-[160px]" title="Per-entity compliance score: KPIs passing ÷ KPIs applicable">${APP.view === 'performance' ? 'Performance' : 'Setup'} Compliance %</span>
-                <span class="w-3" aria-hidden="true"></span>
-              </div>
-              ${nonCompliant.map(it => entityComplianceRow(it, type)).join('')}
-            </div>` : ''}
+          ${complianceCellButton(sectionKey, d.m.id, d.nonCompliant.length, 'fail')}
+          ${entityListPanel(d.nonCompliant, 'fail', d.m, d.expN)}
         </td>
-      </tr>`;
-  }).join('');
+      </tr>`).join('');
+
+  /* Mobile card (< lg) — each KPI is its own card with stacked
+     Compliant + Non-Compliant chips. No horizontal scroll. */
+  const mobileCards = rowsData.map(d => `
+      <article class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-4 space-y-3">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">${d.m.label}</h3>
+          <p class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1">Target: ${d.m.target()}</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded-lg bg-emerald-50/60 dark:bg-emerald-500/[0.06] border border-emerald-200/60 dark:border-emerald-500/15 p-2.5 min-h-[56px] flex items-center">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400/80 mr-2">✓</div>
+            <div class="flex-1">${complianceCellButton(sectionKey, d.m.id, d.compliant.length, 'pass')}</div>
+          </div>
+          <div class="rounded-lg bg-rose-50/60 dark:bg-rose-500/[0.06] border border-rose-200/60 dark:border-rose-500/15 p-2.5 min-h-[56px] flex items-center">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400/80 mr-2">✗</div>
+            <div class="flex-1">${complianceCellButton(sectionKey, d.m.id, d.nonCompliant.length, 'fail')}</div>
+          </div>
+        </div>
+        ${entityListPanel(d.compliant, 'pass', d.m, d.expC)}
+        ${entityListPanel(d.nonCompliant, 'fail', d.m, d.expN)}
+      </article>`).join('');
 
   return `
     <section>
-      <div class="flex items-baseline gap-3 mb-2.5 flex-wrap">
+      <div class="flex items-baseline gap-2 sm:gap-3 mb-2.5 flex-wrap">
         <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">${title}
           <span class="ml-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${items.length}</span>
         </h2>
-        <p class="text-[11px] text-slate-400 dark:text-slate-500">${subtitle}</p>
-        <p class="text-[11px] text-slate-400 dark:text-slate-500 italic ml-auto">↳ Click any name to open Planned vs Actual</p>
+        <p class="text-[11px] text-slate-400 dark:text-slate-500 w-full sm:w-auto">${subtitle}</p>
+        <p class="text-[11px] text-slate-400 dark:text-slate-500 italic sm:ml-auto hidden sm:block">↳ Click any name to open Planned vs Actual</p>
       </div>
-      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+
+      <!-- Mobile: vertical card stack (< lg) -->
+      <div class="lg:hidden space-y-3">${mobileCards}</div>
+
+      <!-- Desktop: matrix table (≥ lg) -->
+      <div class="hidden lg:block rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
         <div class="overflow-x-auto">
-          <table class="w-full text-sm min-w-[640px]">
+          <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/80 dark:bg-slate-800/40">
                 <th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 w-[24%]">KPI</th>
@@ -1451,12 +1532,14 @@ function renderHierarchy() {
   const hiddenCount = (APP.campaigns.length + APP.adsets.length)
                     - (campaigns.length + adsets.length);
   const banner = (!APP.showPaused && hiddenCount > 0 && !APP.searchQuery)
-    ? `<div class="rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/[0.06] px-4 py-2.5 flex items-center gap-3 text-[12px]">
-         <span class="text-amber-700 dark:text-amber-300">⚠</span>
-         <span class="text-slate-700 dark:text-slate-200 flex-1">
-           Hiding <strong>${hiddenCount}</strong> paused / inactive ${hiddenCount === 1 ? 'item' : 'items'}.
-         </span>
-         <button onclick="const cb=document.getElementById('pausedToggle');if(cb){cb.checked=true;}togglePaused(true);" class="text-amber-700 dark:text-amber-300 font-semibold hover:underline">Show all</button>
+    ? `<div class="rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/[0.06] px-4 py-2.5 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 text-[12px]">
+         <div class="flex items-center gap-2">
+           <span class="text-amber-700 dark:text-amber-300">⚠</span>
+           <span class="text-slate-700 dark:text-slate-200 flex-1">
+             Hiding <strong>${hiddenCount}</strong> paused / inactive ${hiddenCount === 1 ? 'item' : 'items'}.
+           </span>
+         </div>
+         <button onclick="const cb=document.getElementById('pausedToggle');if(cb){cb.checked=true;}togglePaused(true);" class="text-amber-700 dark:text-amber-300 font-semibold hover:underline self-start sm:self-auto sm:ml-auto">Show all</button>
        </div>`
     : '';
 
