@@ -96,6 +96,11 @@
       border-radius: 14px; box-shadow: 0 14px 40px rgba(15,23,42,0.10), 0 2px 8px rgba(15,23,42,0.04);
       overflow: hidden;
     }
+    /* When closed, force-hide. Without this, .dp-popup's display:flex
+       wins the cascade over Tailwind's .hidden (display:none) because
+       custom CSS is loaded after utilities — leaving a 2px-tall border
+       strip floating in the layout. */
+    .dp-popup.hidden { display: none !important; }
     html.dark .dp-popup {
       background: #1e293b; border-color: rgba(148,163,184,0.15);
       box-shadow: 0 18px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.2);
