@@ -362,7 +362,7 @@
   </div>
 
   <!-- ── KPI Cards (Performance view only) ── -->
-  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-3">
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Total Spend</div>
       <div id="kpiSpend" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
@@ -386,6 +386,14 @@
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Conversions</div>
       <div id="kpiConversions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total revenue minus total ad spend">Net Revenue</div>
+      <div id="kpiNetRevenue" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Revenue ÷ Spend">ROAS</div>
+      <div id="kpiROAS" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
   </div>
 
@@ -1326,14 +1334,37 @@ function renderKPIs() {
   const avgCTR     = totalImpr  > 0 ? totalClk / totalImpr * 100 : 0;
   const avgCPC     = totalClk   > 0 ? totalSpend / totalClk : 0;
   const totalConv  = all.reduce((s,i) => s + parseConversions(i.actions), 0);
+  const totalRev   = all.reduce((s,i) => s + _revenue(i), 0);
+  const netRev     = totalRev - totalSpend;
+  const roas       = totalSpend > 0 ? totalRev / totalSpend : null;
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
+  const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
   set('kpiSpend',       `₹${totalSpend.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
   set('kpiImpressions', totalImpr.toLocaleString('en-IN'));
   set('kpiClicks',      totalClk.toLocaleString('en-IN'));
   set('kpiCTR',         `${avgCTR.toFixed(2)}%`);
   set('kpiCPC',         `₹${avgCPC.toFixed(2)}`);
   set('kpiConversions', totalConv.toLocaleString('en-IN'));
+  /* Net Revenue: green if positive, red if negative, dash if no revenue tracked. */
+  if (totalRev > 0) {
+    const color = netRev >= 0 ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-rose-600 dark:text-rose-400';
+    const sign  = netRev >= 0 ? '' : '−';
+    set('kpiNetRevenue',
+      `<span class="${color}">${sign}₹${Math.abs(netRev).toLocaleString('en-IN',{maximumFractionDigits:0})}</span>`);
+  } else {
+    set('kpiNetRevenue', muted);
+  }
+  /* ROAS: dash when no spend or no revenue; colored against the target. */
+  if (roas !== null && totalRev > 0) {
+    const target = CONFIG.THRESHOLDS.ROAS_TARGET || 3;
+    const color  = roas >= target ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-600 dark:text-rose-400';
+    set('kpiROAS', `<span class="${color}">${roas.toFixed(2)}×</span>`);
+  } else {
+    set('kpiROAS', muted);
+  }
 }
 
 
@@ -1436,7 +1467,7 @@ async function loadInsights() {
   if (!APP.since || !APP.until) return;
 
   /* KPI skeleton */
-  ['kpiSpend','kpiImpressions','kpiClicks','kpiCTR','kpiCPC','kpiConversions'].forEach(id => {
+  ['kpiSpend','kpiImpressions','kpiClicks','kpiCTR','kpiCPC','kpiConversions','kpiNetRevenue','kpiROAS'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<span class="skeleton inline-block w-16 h-5 rounded"></span>';
   });
