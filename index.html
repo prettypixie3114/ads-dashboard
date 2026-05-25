@@ -373,7 +373,9 @@
     <strong class="font-semibold">Error</strong>
     <span id="errorMsg" class="ml-1"></span>
   </div>
-  <button onclick="clearError()" class="ml-auto text-red-400 hover:text-red-600 shrink-0">✕</button>
+  <button onclick="clearError()" aria-label="Dismiss error" type="button" class="ml-auto w-8 h-8 inline-flex items-center justify-center text-red-400 hover:text-red-600 shrink-0 rounded-md hover:bg-red-100/60 dark:hover:bg-red-900/30 transition">
+    <svg class="w-4 h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+  </button>
 </div>
 
 
@@ -473,7 +475,9 @@
   <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-md max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
       <h3 class="font-semibold text-base">API Configuration</h3>
-      <button onclick="closeSettings()" aria-label="Close" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
+      <button onclick="closeSettings()" aria-label="Close" type="button" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">
+        <svg class="w-5 h-5 sm:w-4 sm:h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
     </div>
     <div class="px-6 py-5 space-y-4">
       <!-- Credentials -->
@@ -545,7 +549,9 @@
   <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-lg max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
       <h3 class="font-semibold text-sm">Bake &amp; Lock Credentials</h3>
-      <button onclick="closeBake()" aria-label="Close" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
+      <button onclick="closeBake()" aria-label="Close" type="button" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">
+        <svg class="w-5 h-5 sm:w-4 sm:h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
     </div>
 
     <!-- Step 1: choose passphrase -->
@@ -628,7 +634,9 @@
         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-0.5">Planned vs Actual</p>
         <h3 id="analysisTitle" class="font-semibold text-sm sm:text-base leading-snug"></h3>
       </div>
-      <button onclick="closeAnalysis()" aria-label="Close" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
+      <button onclick="closeAnalysis()" aria-label="Close" type="button" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">
+        <svg class="w-5 h-5 sm:w-4 sm:h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
     </div>
     <div id="analysisScroller" class="relative flex-1 overflow-y-auto" onscroll="updateAnalysisFade()">
       <div id="analysisContent" class="px-4 sm:px-6 py-4 sm:py-5 space-y-4"></div>
@@ -1472,11 +1480,11 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div class="rounded-lg bg-emerald-50/60 dark:bg-emerald-500/[0.06] border border-emerald-200/60 dark:border-emerald-500/15 p-2.5 min-h-[56px] flex items-center">
-            <div class="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400/80 mr-2">✓</div>
+            <svg class="w-4 h-4 text-emerald-600 dark:text-emerald-400/80 mr-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
             <div class="flex-1">${complianceCellButton(sectionKey, d.m.id, d.compliant.length, 'pass')}</div>
           </div>
           <div class="rounded-lg bg-rose-50/60 dark:bg-rose-500/[0.06] border border-rose-200/60 dark:border-rose-500/15 p-2.5 min-h-[56px] flex items-center">
-            <div class="text-[10px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400/80 mr-2">✗</div>
+            <svg class="w-4 h-4 text-rose-600 dark:text-rose-400/80 mr-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
             <div class="flex-1">${complianceCellButton(sectionKey, d.m.id, d.nonCompliant.length, 'fail')}</div>
           </div>
         </div>
