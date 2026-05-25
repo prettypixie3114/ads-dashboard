@@ -2329,22 +2329,53 @@ function exportCSV() {
 
     rows.push([]);
     rows.push([`Detail — ${heading}`]);
-    rows.push(['KPI','Result','Name','Overall %','Pass/Total']);
+    rows.push(['Entity','KPI','Result','Target / Planned','Actual','Overall %','Pass/Total']);
     items.forEach(it => {
-      const s = (type === 'campaign' && APP.view === 'setup')
-        ? rolledUpScore(it, metrics)
-        : complianceScore(it, metrics);
-      metrics.forEach(m => {
-        const r = evalForRow(it, m, type);
-        if (r === 'na') return;
-        rows.push([
-          m.label,
-          r === 'pass' ? 'Compliant' : 'Non-Compliant',
-          it.name,
-          s.pct === null ? '' : s.pct + '%',
-          `${s.pass}/${s.total}`
-        ]);
-      });
+      const useRollup = type === 'campaign' && APP.view === 'setup';
+      const s = useRollup ? rolledUpScore(it, metrics) : complianceScore(it, metrics);
+      const pctStr   = s.pct === null ? '' : s.pct + '%';
+      const passTot  = `${s.pass}/${s.total}`;
+
+      if (useRollup) {
+        /* Setup tab + campaign → enumerate child ad sets × each KPI so the
+           CSV mirrors the per-row Compliant/Non-Compliant breakdown the
+           analysis modal shows. */
+        const children = APP.adsets.filter(c => c.campaign_id === it.id);
+        children.forEach(child => {
+          const cIns = APP.insights[child.id];
+          metrics.forEach(m => {
+            if (m.appliesTo && !m.appliesTo.includes('adset')) return;
+            const r = m.evaluate(child, cIns);
+            if (r === 'na') return;
+            rows.push([
+              `${it.name} › ${child.name}`,
+              m.label,
+              r === 'pass' ? 'Compliant' : 'Non-Compliant',
+              m.target(),
+              m.actual ? m.actual(child, cIns) : '',
+              pctStr,
+              passTot
+            ]);
+          });
+        });
+      } else {
+        /* Direct evaluation — one row per applicable KPI on the entity */
+        const ins = APP.insights[it.id] || {};
+        metrics.forEach(m => {
+          if (m.appliesTo && !m.appliesTo.includes(_entityType(it))) return;
+          const r = m.evaluate(it, ins);
+          if (r === 'na') return;
+          rows.push([
+            it.name,
+            m.label,
+            r === 'pass' ? 'Compliant' : 'Non-Compliant',
+            m.target(),
+            m.actual ? m.actual(it, ins) : '',
+            pctStr,
+            passTot
+          ]);
+        });
+      }
     });
     rows.push([]);
   };
