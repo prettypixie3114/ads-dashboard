@@ -469,7 +469,7 @@
   <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-md max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
       <h3 class="font-semibold text-base">API Configuration</h3>
-      <button onclick="closeSettings()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
+      <button onclick="closeSettings()" aria-label="Close" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
     </div>
     <div class="px-6 py-5 space-y-4">
       <!-- Credentials -->
@@ -541,7 +541,7 @@
   <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-lg max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
       <h3 class="font-semibold text-sm">Bake &amp; Lock Credentials</h3>
-      <button onclick="closeBake()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
+      <button onclick="closeBake()" aria-label="Close" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
     </div>
 
     <!-- Step 1: choose passphrase -->
@@ -583,8 +583,8 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  UNLOCK MODAL  (passphrase gate before Settings)             -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="unlockModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
-  <div class="bg-white dark:bg-gray-900 shadow-2xl w-full h-screen sm:h-auto max-w-none sm:max-w-sm max-h-screen sm:max-h-[90vh] rounded-none sm:rounded-2xl overflow-y-auto flex flex-col">
+<div id="unlockModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm max-h-[calc(100vh-2rem)] overflow-y-auto">
     <div class="px-6 py-5">
       <div class="flex items-center gap-3 mb-3">
         <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">🔒</div>
@@ -624,7 +624,7 @@
         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-0.5">Planned vs Actual</p>
         <h3 id="analysisTitle" class="font-semibold text-sm sm:text-base leading-snug"></h3>
       </div>
-      <button onclick="closeAnalysis()" aria-label="Close" class="ml-2 -mr-1 -mt-1 w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
+      <button onclick="closeAnalysis()" aria-label="Close" class="ml-2 w-10 h-10 sm:w-9 sm:h-9 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-xl leading-none shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">✕</button>
     </div>
     <div id="analysisScroller" class="relative flex-1 overflow-y-auto" onscroll="updateAnalysisFade()">
       <div id="analysisContent" class="px-4 sm:px-6 py-4 sm:py-5 space-y-4"></div>
