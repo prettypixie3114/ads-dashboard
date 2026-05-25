@@ -38,12 +38,12 @@ if (typeof CONFIG === 'undefined') {
     FIELDS: {
       CAMPAIGN_SETUP: [
         'id','name','objective','buying_type',
-        'daily_budget','lifetime_budget','status',
+        'daily_budget','lifetime_budget','status','effective_status',
         'created_time','start_time','stop_time'
       ].join(','),
 
       ADSET_SETUP: [
-        'id','name','campaign_id','status',
+        'id','name','campaign_id','status','effective_status',
         'optimization_goal','billing_event','bid_strategy',
         'daily_budget','lifetime_budget','targeting',
         'created_time','start_time','end_time'

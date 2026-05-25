@@ -1068,6 +1068,17 @@ const SETUP_METRICS = [
 function _entityType(item) {
   return item.objective ? 'campaign' : 'adset';
 }
+
+/* Is this item truly running right now? Uses Meta's effective_status,
+   which collapses configured status + parent overrides (campaign paused,
+   draft, in process, with issues, etc.) into a single authoritative flag.
+   Anything other than ACTIVE is treated as "not live" and hidden when
+   Show Paused is off. Falls back to configured status if the API didn't
+   return effective_status for some reason. */
+function isLive(item) {
+  const es = item.effective_status || item.status;
+  return es === 'ACTIVE';
+}
 function _entityKind(item) {
   return item.objective ? 'Campaign' : 'Ad Set';
 }
@@ -1286,7 +1297,7 @@ function renderHierarchy() {
   /* Filter base sets */
   const filt = arr => {
     let r = [...arr];
-    if (!APP.showPaused) r = r.filter(x => x.status !== 'PAUSED');
+    if (!APP.showPaused) r = r.filter(isLive);
     if (APP.searchQuery) {
       const q = APP.searchQuery.toLowerCase();
       r = r.filter(x => x.name?.toLowerCase().includes(q));
@@ -1326,7 +1337,7 @@ function renderKPIs() {
      with the table when paused items are hidden. */
   const visibleIds = APP.showPaused
     ? [...APP.campaigns, ...APP.adsets].map(x => x.id)
-    : [...APP.campaigns, ...APP.adsets].filter(x => x.status !== 'PAUSED').map(x => x.id);
+    : [...APP.campaigns, ...APP.adsets].filter(isLive).map(x => x.id);
   const all = visibleIds.map(id => APP.insights[id]).filter(Boolean);
   const totalSpend = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
   const totalImpr  = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
@@ -2321,7 +2332,7 @@ function exportCSV() {
   const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
   const filt = arr => {
     let r = [...arr];
-    if (!APP.showPaused) r = r.filter(x => x.status !== 'PAUSED');
+    if (!APP.showPaused) r = r.filter(isLive);
     if (APP.searchQuery) {
       const q = APP.searchQuery.toLowerCase();
       r = r.filter(x => x.name?.toLowerCase().includes(q));
