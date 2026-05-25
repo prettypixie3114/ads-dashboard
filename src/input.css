@@ -10,9 +10,18 @@
        hides its URL bar on scroll) and bottom home bar. */
     nav.sticky { padding-top: env(safe-area-inset-top); height: calc(56px + env(safe-area-inset-top)); }
     @media (max-width: 639px) {
-      /* Only the full-screen modals need top safe-area — unlock modal
-         is a centered card, can't touch the notch. */
+      /* Full-screen modals on mobile:
+         - Use 100dvh (dynamic viewport height) instead of 100vh so the
+           modal tracks the viewport as iOS Safari shows/hides its URL
+           bar. With 100vh, the modal stays at 'tallest possible' size
+           and its top header gets clipped under the URL bar on first
+           paint until the user scrolls or pinch-zooms (forcing a
+           viewport recalc — the bug user reported). 100dvh fixes
+           this at the layout layer.
+         - Pad for notch + home bar so close X / title aren't hidden. */
       #analysisModal > div, #settingsModal > div, #bakeModal > div {
+        height: 100dvh !important;
+        max-height: 100dvh !important;
         padding-top: env(safe-area-inset-top);
         padding-bottom: env(safe-area-inset-bottom);
       }
