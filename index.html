@@ -1056,6 +1056,37 @@ const SETUP_METRICS = [
     actual: item => {
       const t = parseTargeting(item.targeting);
       return t.locations;
+    },
+    /* Expanded view: full lists of included AND excluded geo entries,
+       so clicking "Excl 59" on the row reveals all 59 by name. */
+    details: item => {
+      const fmtRadius = p => p.radius ? ` (+${p.radius}${p.distance_unit || 'km'})` : '';
+      const flatten = geo => {
+        if (!geo) return [];
+        const out = [];
+        if (geo.countries)        out.push(...geo.countries.map(countryName));
+        if (geo.country_groups)   out.push(...geo.country_groups);
+        if (geo.regions)          out.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
+        if (geo.cities)           out.push(...geo.cities.map(c => (c.name || c.key) + fmtRadius(c)).filter(Boolean));
+        if (geo.subcities)        out.push(...geo.subcities.map(c => c.name).filter(Boolean));
+        if (geo.places)           out.push(...geo.places.map(p => (p.name || `(${p.latitude},${p.longitude})`) + fmtRadius(p)));
+        if (geo.custom_locations) out.push(...geo.custom_locations.map(c => (c.name || `(${c.latitude},${c.longitude})`) + fmtRadius(c)));
+        if (geo.geo_markets)      out.push(...geo.geo_markets.map(m => m.name).filter(Boolean));
+        if (geo.electoral_districts) out.push(...geo.electoral_districts.map(d => d.name).filter(Boolean));
+        if (geo.metro_areas)      out.push(...geo.metro_areas.map(m => m.name).filter(Boolean));
+        if (geo.medium_geo_areas) out.push(...geo.medium_geo_areas.map(m => m.name).filter(Boolean));
+        if (geo.neighborhoods)    out.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
+        if (geo.subneighborhoods) out.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
+        if (geo.zips?.length)     out.push(...geo.zips.map(z => z.key || z.name || JSON.stringify(z)));
+        return out;
+      };
+      const t = item.targeting || {};
+      const incl = flatten(t.geo_locations);
+      const excl = flatten(t.excluded_geo_locations);
+      const out = {};
+      if (incl.length > 4) out['Included locations'] = incl;
+      if (excl.length)     out['Excluded locations'] = excl;
+      return Object.keys(out).length ? out : null;
     }
   },
   {
@@ -1081,6 +1112,18 @@ const SETUP_METRICS = [
       return list.length
         ? `${list.length} interest${list.length===1?'':'s'}`
         : 'All demographics, interests and behaviours';
+    },
+    /* Expanded view: full interest/behaviour names. */
+    details: item => {
+      const t = item.targeting || {};
+      const list = [];
+      if (t.interests) list.push(...t.interests.map(i => i.name));
+      if (t.behaviors) list.push(...t.behaviors.map(b => b.name));
+      (t.flexible_spec || []).forEach(s => {
+        if (s.interests) list.push(...s.interests.map(i => i.name));
+        if (s.behaviors) list.push(...s.behaviors.map(b => b.name));
+      });
+      return list.length ? { 'Interests / behaviours': list } : null;
     }
   },
   {
@@ -1107,6 +1150,25 @@ const SETUP_METRICS = [
       if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length)
         return `Detailed targeting${exclNote}${advAud}`;
       return `Broad only${exclNote}${advAud}`;
+    },
+    /* Expanded view: full custom audience names (incl + excl) and
+       any detailed targeting names. */
+    details: item => {
+      const t = item.targeting || {};
+      const out = {};
+      if (t.custom_audiences?.length)
+        out['Custom audiences'] = t.custom_audiences.map(a => a.name || a.id);
+      if (t.excluded_custom_audiences?.length)
+        out['Excluded custom audiences'] = t.excluded_custom_audiences.map(a => a.name || a.id);
+      const detailedList = [];
+      if (t.interests) detailedList.push(...t.interests.map(i => i.name));
+      if (t.behaviors) detailedList.push(...t.behaviors.map(b => b.name));
+      (t.flexible_spec || []).forEach(s => {
+        if (s.interests) detailedList.push(...s.interests.map(i => i.name));
+        if (s.behaviors) detailedList.push(...s.behaviors.map(b => b.name));
+      });
+      if (detailedList.length) out['Detailed targeting'] = detailedList;
+      return Object.keys(out).length ? out : null;
     }
   }
 ];
@@ -2163,7 +2225,8 @@ function openAnalysis(id) {
           entity:  child.name,
           metric:  m.label,
           planned: m.target(),
-          actual:  m.actual(child, cIns)
+          actual:  m.actual(child, cIns),
+          details: m.details ? m.details(child, cIns) : null
         };
         (r === 'pass' ? compliantItems : nonCompliantItems).push(row);
       });
@@ -2177,7 +2240,8 @@ function openAnalysis(id) {
       const row = {
         metric:  m.label,
         planned: m.target(),
-        actual:  m.actual(item, ins)
+        actual:  m.actual(item, ins),
+        details: m.details ? m.details(item, ins) : null
       };
       (r === 'pass' ? compliantItems : nonCompliantItems).push(row);
     });
@@ -2284,11 +2348,33 @@ function openAnalysis(id) {
   /* 3 & 4. Compliant / Non-compliant rows.
      For rollup mode each row carries an `entity` prefix so you can see
      which child ad set the failure belongs to. */
+  /* Stable per-modal-open ids so the toggle handler can target the right
+     details panel even when the same metric appears for many child ad sets. */
+  let _detIdSeq = 0;
   const rowHtml = (r, kind) => {
     const dot = kind === 'pass' ? 'bg-emerald-400' : 'bg-rose-400';
     const val = kind === 'pass'
       ? 'text-emerald-600 dark:text-emerald-400'
       : 'text-rose-600 dark:text-rose-400';
+    const hasDetails = r.details && Object.keys(r.details).length > 0;
+    const totalCount = hasDetails
+      ? Object.values(r.details).reduce((s, arr) => s + arr.length, 0)
+      : 0;
+    const id = `det_${kind}_${_detIdSeq++}`;
+    const toggleBtn = hasDetails
+      ? `<button type="button" onclick="toggleDetails('${id}', this)" class="text-[10px] font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 underline decoration-dotted underline-offset-2 ml-1">View ${totalCount}</button>`
+      : '';
+    const detailsPanel = hasDetails
+      ? `<div id="${id}" class="hidden mt-2 ml-4 pl-3 border-l-2 border-slate-200 dark:border-slate-700 space-y-2">
+           ${Object.entries(r.details).map(([label, items]) => `
+             <div>
+               <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">${escH(label)} (${items.length})</div>
+               <ul class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed max-h-56 overflow-y-auto pr-2 space-y-0.5">
+                 ${items.map(s => `<li class="font-mono">${escH(String(s))}</li>`).join('')}
+               </ul>
+             </div>`).join('')}
+         </div>`
+      : '';
     return `
       <div class="py-2 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0">
         <div class="flex items-start gap-3">
@@ -2300,7 +2386,9 @@ function openAnalysis(id) {
               <span class="text-[11px] text-slate-500 dark:text-slate-400">target <span class="font-mono">${escH(r.planned)}</span></span>
               <span class="text-[11px] text-slate-500 dark:text-slate-400">·</span>
               <span class="text-xs font-mono font-semibold ${val}">${escH(r.actual)}</span>
+              ${toggleBtn}
             </div>
+            ${detailsPanel}
           </div>
         </div>
       </div>`;
@@ -2369,6 +2457,20 @@ function closeAnalysis() {
   const m = document.getElementById('analysisModal');
   m.classList.add('hidden');
   m.classList.remove('flex');
+}
+
+/* Expand/collapse the per-row details panel rendered by rowHtml().
+   Toggles the hidden state and flips the button label between
+   "View N" and "Hide". */
+function toggleDetails(id, btn) {
+  const panel = document.getElementById(id);
+  if (!panel) return;
+  const showing = panel.classList.toggle('hidden') === false;
+  if (btn) {
+    const orig = btn.dataset.orig || btn.textContent;
+    btn.dataset.orig = orig;
+    btn.textContent  = showing ? 'Hide' : orig;
+  }
 }
 
 
