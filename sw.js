@@ -12,7 +12,7 @@
  * Bump CACHE_VERSION whenever you change the strategy or want to nuke
  * old caches. Old caches are purged on the next 'activate' event.
  */
-const CACHE_VERSION = 'meta-ads-v4';
+const CACHE_VERSION = 'meta-ads-v5';
 const ASSET_CACHE   = `${CACHE_VERSION}-assets`;
 const HTML_CACHE    = `${CACHE_VERSION}-html`;
 

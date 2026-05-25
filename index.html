@@ -132,8 +132,8 @@
       <div id="kpiSpend" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total revenue minus total ad spend">Net Revenue</div>
-      <div id="kpiNetRevenue" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total purchase conversion value (sum of action_values for purchase, lead, complete_registration, subscribe, contact). Matches Meta Ads Manager's 'Purchases conversion value' field exactly.">Purchases Conv. Value</div>
+      <div id="kpiPurchaseValue" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
@@ -1333,12 +1333,13 @@ function renderKPIs() {
   set('kpiCTR',         `${avgCTR.toFixed(2)}%`);
   set('kpiCPC',         `₹${avgCPC.toFixed(2)}`);
   set('kpiConversions', totalConv.toLocaleString('en-IN'));
-  if (totalRev > 0) {
-    const sign = netRev >= 0 ? '' : '−';
-    set('kpiNetRevenue', `${sign}₹${Math.abs(netRev).toLocaleString('en-IN',{maximumFractionDigits:0})}`);
-  } else {
-    set('kpiNetRevenue', muted);
-  }
+  /* Purchases Conv. Value: matches Meta Ads Manager's "Purchases
+     conversion value" column exactly. Raw gross revenue from purchase
+     action_values, not netted against spend. */
+  set('kpiPurchaseValue',
+    totalRev > 0
+      ? `₹${totalRev.toLocaleString('en-IN',{maximumFractionDigits:0})}`
+      : muted);
   set('kpiROAS', (roas !== null && totalRev > 0) ? `${roas.toFixed(2)}×` : muted);
 }
 
@@ -1470,7 +1471,7 @@ async function loadInsights() {
   if (!APP.since || !APP.until) return;
 
   /* KPI skeleton */
-  ['kpiSpend','kpiImpressions','kpiClicks','kpiCTR','kpiCPC','kpiConversions','kpiNetRevenue','kpiROAS'].forEach(id => {
+  ['kpiSpend','kpiImpressions','kpiClicks','kpiCTR','kpiCPC','kpiConversions','kpiPurchaseValue','kpiROAS'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<span class="skeleton inline-block w-16 h-5 rounded"></span>';
   });
