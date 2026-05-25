@@ -280,7 +280,7 @@
       class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors text-base">
       <span id="themeIcon">🌙</span>
     </button>
-    <button onclick="openSettings()" title="Settings"
+    <button onclick="unlockSettings()" title="Settings"
       class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
     </button>
@@ -467,6 +467,32 @@
     <div class="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
       <button onclick="closeSettings()" class="flex-1 text-sm font-medium px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Cancel</button>
       <button onclick="saveSettings()" class="flex-1 text-sm font-semibold px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 transition">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  UNLOCK MODAL  (passphrase gate before Settings)             -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="unlockModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm">
+    <div class="px-6 py-5">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">🔒</div>
+        <div>
+          <h3 class="font-semibold text-sm">Restricted</h3>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Enter passphrase to access Settings</p>
+        </div>
+      </div>
+      <input id="unlockInput" type="password" placeholder="Passphrase"
+        onkeydown="if(event.key==='Enter') submitUnlock()"
+        class="w-full text-sm px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-slate-400 outline-none">
+      <p id="unlockError" class="hidden mt-2 text-xs text-red-500">Incorrect passphrase.</p>
+    </div>
+    <div class="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
+      <button onclick="closeUnlock()" class="flex-1 text-sm font-medium px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Cancel</button>
+      <button onclick="submitUnlock()" class="flex-1 text-sm font-semibold px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 transition">Unlock</button>
     </div>
   </div>
 </div>
@@ -1262,7 +1288,7 @@ function renderKPIs() {
 /*  9. DATA LOADING                                              */
 /* ══════════════════════════════════════════════════════════════ */
 async function loadData() {
-  if (!isConfigured()) { openSettings(); return; }
+  if (!isConfigured()) { unlockSettings(); return; }
   if (APP.loading) return;
 
   APP.loading = true;
@@ -1628,7 +1654,6 @@ function openSettings() {
   document.getElementById('cfgAppId').value    = CONFIG.META_APP_ID;
   document.getElementById('cfgAppSecret').value = CONFIG.META_APP_SECRET;
   document.getElementById('cfgAccount').value  = CONFIG.META_AD_ACCOUNT_ID;
-  document.getElementById('cfgAnthropic').value = CONFIG.ANTHROPIC_API_KEY;
   document.getElementById('cfgROAS').value     = CONFIG.THRESHOLDS.ROAS_TARGET;
   document.getElementById('cfgCPA').value      = CONFIG.THRESHOLDS.CPA_TARGET;
 }
@@ -1636,6 +1661,55 @@ function closeSettings() {
   const m = document.getElementById('settingsModal');
   m.classList.add('hidden');
   m.classList.remove('flex');
+}
+
+/* ── Passphrase gate ─────────────────────────────────────────────
+   Default passphrase: "Reveal@2026". To change, hash a new passphrase
+   with SHA-256 and replace SETTINGS_PASS_HASH below.
+     PowerShell:  $b=[Text.Encoding]::UTF8.GetBytes("YourPass"); -join ([Security.Cryptography.SHA256]::Create().ComputeHash($b) | %{ $_.ToString("x2") })
+     Bash:        printf 'YourPass' | sha256sum
+   Note: this is a client-side gate. It stops casual visitors, not
+   anyone with DevTools. Real secrecy requires server-side auth. */
+const SETTINGS_PASS_HASH = 'a5c248a38a9857d077994ece7d68c33637528ef905a68bbabf82ec9f4c0d3c7a';
+
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function unlockSettings() {
+  if (sessionStorage.getItem('metaAdsUnlocked') === '1') {
+    openSettings();
+    return;
+  }
+  const m = document.getElementById('unlockModal');
+  m.classList.remove('hidden');
+  m.classList.add('flex');
+  const err = document.getElementById('unlockError');
+  if (err) err.classList.add('hidden');
+  const inp = document.getElementById('unlockInput');
+  if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
+}
+
+function closeUnlock() {
+  const m = document.getElementById('unlockModal');
+  m.classList.add('hidden');
+  m.classList.remove('flex');
+}
+
+async function submitUnlock() {
+  const inp = document.getElementById('unlockInput');
+  const err = document.getElementById('unlockError');
+  const hash = await sha256Hex(inp.value);
+  if (hash === SETTINGS_PASS_HASH) {
+    sessionStorage.setItem('metaAdsUnlocked', '1');
+    closeUnlock();
+    openSettings();
+  } else {
+    err.classList.remove('hidden');
+    inp.value = '';
+    inp.focus();
+  }
 }
 function saveSettings() {
   try {
@@ -1651,7 +1725,6 @@ function saveSettings() {
     const appId   = document.getElementById('cfgAppId').value.trim();
     const secret  = document.getElementById('cfgAppSecret').value.trim();
     const account = document.getElementById('cfgAccount').value.trim().replace(/^act_/,'');
-    const anth    = document.getElementById('cfgAnthropic').value.trim();
     const roas    = parseFloat(document.getElementById('cfgROAS').value) || 3.0;
     const cpa     = parseFloat(document.getElementById('cfgCPA').value)  || 25.0;
 
@@ -1663,7 +1736,6 @@ function saveSettings() {
     CONFIG.META_APP_ID            = appId;
     CONFIG.META_APP_SECRET        = secret;
     CONFIG.META_AD_ACCOUNT_ID     = account;
-    CONFIG.ANTHROPIC_API_KEY      = anth;
     CONFIG.THRESHOLDS.ROAS_TARGET = roas;
     CONFIG.THRESHOLDS.CPA_TARGET  = cpa;
 
@@ -2163,7 +2235,7 @@ function init() {
       loadData();
     }
   } else {
-    openSettings();
+    unlockSettings();
   }
 }
 
