@@ -26,16 +26,20 @@
     :root { --brand: #6366f1; }
 
     /* Safe-area insets for notched phones (iPhone X+, modern Androids).
-       Nav respects the top notch; full-screen modals respect bottom home bar. */
+       Nav respects the top notch. Full-screen modals on mobile respect
+       BOTH top notch (so close X / title aren't clipped when Safari
+       hides its URL bar on scroll) and bottom home bar. */
     nav.sticky { padding-top: env(safe-area-inset-top); height: calc(56px + env(safe-area-inset-top)); }
-    #analysisModal > div, #unlockModal > div, #settingsModal > div, #bakeModal > div {
-      padding-bottom: env(safe-area-inset-bottom);
+    @media (max-width: 639px) {
+      /* Only the full-screen modals need top safe-area — unlock modal
+         is a centered card, can't touch the notch. */
+      #analysisModal > div, #settingsModal > div, #bakeModal > div {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
     }
     @media (min-width: 640px) {
       nav.sticky { height: 56px; padding-top: 0; }
-      #analysisModal > div, #unlockModal > div, #settingsModal > div, #bakeModal > div {
-        padding-bottom: 0;
-      }
     }
 
     /* ── Eye-comfort dark theme overrides ──
