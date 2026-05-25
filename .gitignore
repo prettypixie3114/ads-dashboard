@@ -6,6 +6,9 @@
 # values filled in only on each developer's machine.
 config.js
 
+# One-shot bake script — contains plaintext creds when present
+bake.js
+
 # Generic secret file patterns
 .env
 .env.*
