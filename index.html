@@ -591,7 +591,7 @@
 const APP = {
   view:               'setup',
   theme:              'light',
-  datePreset:         'last_30d',
+  datePreset:         'last_7d',
   since:              '',
   until:              '',
   campaigns:          [],
@@ -602,7 +602,8 @@ const APP = {
   searchQuery:        '',
   showPaused:         false,     // default: hide paused for cleaner exec view
   expandedCells:      {},        // { '<section>_<metricId>_<pass|fail>': true }
-  admin:              false      // true when URL has #admin — reveals ⚙ + credential form
+  admin:              false,     // true when URL has #admin — reveals ⚙ + credential form
+  adsetsLoading:      false      // true while ad sets are still in-flight on cold load
 };
 
 
@@ -1406,12 +1407,25 @@ function renderHierarchy() {
     ? 'KPI verdicts rolled up from child ad sets (majority pass = compliant)'
     : 'Evaluated directly from campaign-level insights';
 
+  /* While ad sets are still in flight on cold load, render Section 1 right
+     away and show a skeleton placeholder for Section 2 so the user knows
+     more is coming. */
+  const adsetsSection = (APP.adsetsLoading && APP.adsets.length === 0)
+    ? `<section class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 overflow-hidden">
+         <div class="px-4 sm:px-5 py-3 border-b border-slate-200/60 dark:border-slate-700/40 flex items-baseline gap-2 flex-wrap">
+           <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Section 2 — Ad Sets</h2>
+           <span class="text-[11px] text-slate-400 dark:text-slate-500">loading…</span>
+         </div>
+         <table class="w-full"><tbody>${skeletonMatrixRows(6)}</tbody></table>
+       </section>`
+    : renderMatrixSection('Section 2 — Ad Sets',
+                          'Evaluated directly against each ad set',
+                          adsets, 'adset', 'ads');
+
   document.getElementById('hierarchyHost').innerHTML = `
     <div class="space-y-5">
       ${renderMatrixSection('Section 1 — Campaigns', campaignSubtitle, campaigns, 'campaign', 'camp')}
-      ${renderMatrixSection('Section 2 — Ad Sets',
-                            'Evaluated directly against each ad set',
-                            adsets, 'adset', 'ads')}
+      ${adsetsSection}
     </div>`;
 
   renderKPIs();
@@ -1478,17 +1492,34 @@ async function loadData() {
     </div>`;
 
   try {
-    const [camps, adsets] = await Promise.all([fetchCampaigns(), fetchAdSets()]);
-    APP.campaigns = camps;
-    APP.adsets    = adsets;
+    /* Kick off both requests in parallel, but render Section 1 the
+       moment campaigns land — campaigns are tiny (~12 KB), ad sets
+       are fat (targeting field can be hundreds of KB × N). The user
+       sees the Campaigns matrix in ~1s instead of waiting for ad sets. */
+    APP.campaigns      = [];
+    APP.adsets         = [];
+    APP.adsetsLoading  = true;
 
-    /* cache all items for modal use */
-    [...camps, ...adsets].forEach(x => { APP.itemCache[x.id] = x; });
+    const campsP  = fetchCampaigns();
+    const adsetsP = fetchAdSets();
+
+    campsP.then(camps => {
+      APP.campaigns = camps;
+      camps.forEach(x => { APP.itemCache[x.id] = x; });
+      renderAll();
+    }).catch(() => { /* error surfaces via the outer await below */ });
+
+    adsetsP.then(adsets => {
+      APP.adsets        = adsets;
+      APP.adsetsLoading = false;
+      adsets.forEach(x => { APP.itemCache[x.id] = x; });
+      renderAll();
+    }).catch(() => { /* error surfaces via the outer await below */ });
+
+    await Promise.all([campsP, adsetsP]);
 
     if (APP.view === 'performance') {
       await loadInsights();
-    } else {
-      renderAll();
     }
 
     /* Persist to localStorage so we don't re-hit the API today */
@@ -1497,6 +1528,7 @@ async function loadData() {
     setLastRefreshUI(new Date());
 
   } catch (err) {
+    APP.adsetsLoading = false;
     showError(err.message);
     /* Without this, the skeleton placeholder stays forever when the
        initial campaigns/adsets fetch fails (e.g. rate-limit on cold load). */
