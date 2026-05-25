@@ -30,9 +30,13 @@ credentials.json
 Thumbs.db
 
 # ───────────────────────────────────────────────────────────────
-#  Build / dependency artifacts (in case the project grows)
+#  Build / dependency artifacts
 # ───────────────────────────────────────────────────────────────
+# node_modules: large, regenerable via `npm install`
 node_modules/
-dist/
+# dist/ IS committed — GitHub Pages serves dist/tailwind.css directly
 build/
 .cache/
+
+# package-lock.json captures the exact Tailwind toolchain version
+# so collaborators get reproducible builds. Keep it tracked.
