@@ -368,6 +368,10 @@
       <div id="kpiSpend" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total revenue minus total ad spend">Net Revenue</div>
+      <div id="kpiNetRevenue" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
       <div id="kpiImpressions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
@@ -386,10 +390,6 @@
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Conversions</div>
       <div id="kpiConversions" class="text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
-    </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total revenue minus total ad spend">Net Revenue</div>
-      <div id="kpiNetRevenue" class="text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Revenue ÷ Spend">ROAS</div>
@@ -1346,25 +1346,13 @@ function renderKPIs() {
   set('kpiCTR',         `${avgCTR.toFixed(2)}%`);
   set('kpiCPC',         `₹${avgCPC.toFixed(2)}`);
   set('kpiConversions', totalConv.toLocaleString('en-IN'));
-  /* Net Revenue: green if positive, red if negative, dash if no revenue tracked. */
   if (totalRev > 0) {
-    const color = netRev >= 0 ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-rose-600 dark:text-rose-400';
-    const sign  = netRev >= 0 ? '' : '−';
-    set('kpiNetRevenue',
-      `<span class="${color}">${sign}₹${Math.abs(netRev).toLocaleString('en-IN',{maximumFractionDigits:0})}</span>`);
+    const sign = netRev >= 0 ? '' : '−';
+    set('kpiNetRevenue', `${sign}₹${Math.abs(netRev).toLocaleString('en-IN',{maximumFractionDigits:0})}`);
   } else {
     set('kpiNetRevenue', muted);
   }
-  /* ROAS: dash when no spend or no revenue; colored against the target. */
-  if (roas !== null && totalRev > 0) {
-    const target = CONFIG.THRESHOLDS.ROAS_TARGET || 3;
-    const color  = roas >= target ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-rose-600 dark:text-rose-400';
-    set('kpiROAS', `<span class="${color}">${roas.toFixed(2)}×</span>`);
-  } else {
-    set('kpiROAS', muted);
-  }
+  set('kpiROAS', (roas !== null && totalRev > 0) ? `${roas.toFixed(2)}×` : muted);
 }
 
 
