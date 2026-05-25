@@ -9,6 +9,9 @@ config.js
 # One-shot bake script — contains plaintext creds when present
 bake.js
 
+# Local backup snapshots
+*.bak.*
+
 # Generic secret file patterns
 .env
 .env.*
