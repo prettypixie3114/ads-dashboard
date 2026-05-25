@@ -736,25 +736,63 @@ async function fetchAccountInsights(level) {
 /* ══════════════════════════════════════════════════════════════ */
 /*  4. PARSERS & FORMATTERS                                      */
 /* ══════════════════════════════════════════════════════════════ */
+
+/* ISO-3166-1 alpha-2 → display name. Common countries only; unknown
+   codes pass through unchanged. Mirrors how Meta UI shows "India"
+   instead of "IN", "United States" instead of "US", etc. */
+const COUNTRY_NAMES = {
+  IN:'India', US:'United States', GB:'United Kingdom', AU:'Australia',
+  CA:'Canada', AE:'United Arab Emirates', SG:'Singapore', MY:'Malaysia',
+  TH:'Thailand', VN:'Vietnam', ID:'Indonesia', PH:'Philippines',
+  BD:'Bangladesh', PK:'Pakistan', LK:'Sri Lanka', NP:'Nepal',
+  BT:'Bhutan', MV:'Maldives', AF:'Afghanistan', MM:'Myanmar',
+  SA:'Saudi Arabia', KW:'Kuwait', QA:'Qatar', OM:'Oman', BH:'Bahrain',
+  JO:'Jordan', LB:'Lebanon', EG:'Egypt', MA:'Morocco', TR:'Turkey',
+  IL:'Israel', IR:'Iran',
+  NG:'Nigeria', KE:'Kenya', ZA:'South Africa', GH:'Ghana', ET:'Ethiopia',
+  DE:'Germany', FR:'France', IT:'Italy', ES:'Spain', NL:'Netherlands',
+  BE:'Belgium', SE:'Sweden', NO:'Norway', DK:'Denmark', FI:'Finland',
+  IE:'Ireland', PT:'Portugal', GR:'Greece', PL:'Poland', AT:'Austria',
+  CH:'Switzerland', CZ:'Czechia', RU:'Russia', UA:'Ukraine',
+  BR:'Brazil', MX:'Mexico', AR:'Argentina', CL:'Chile', CO:'Colombia', PE:'Peru',
+  JP:'Japan', KR:'South Korea', CN:'China', HK:'Hong Kong', TW:'Taiwan',
+  NZ:'New Zealand'
+};
+function countryName(code) { return COUNTRY_NAMES[code] || code; }
+
+/* Count excluded geo entries across all sub-fields so we can show
+   a "Excl N" hint in the locations display, matching the visual weight
+   of Meta UI's long exclusion list. */
+function countExclusions(excludedGeo) {
+  if (!excludedGeo) return 0;
+  let n = 0;
+  for (const k of Object.keys(excludedGeo)) {
+    const v = excludedGeo[k];
+    if (Array.isArray(v)) n += v.length;
+  }
+  return n;
+}
+
 function parseTargeting(t) {
   if (!t) return { age:'—', gender:'—', locations:'—', interests:'—' };
 
-  /* Age */
+  /* Age — formatted "25 - 54" with spaces, matching Meta UI */
   const amin = t.age_min || 18, amax = t.age_max || 65;
-  const age  = (amin === 18 && amax === 65) ? 'All ages' : `${amin}–${amax}`;
+  const age  = (amin === 18 && amax === 65) ? 'All ages' : `${amin} - ${amax}`;
 
-  /* Gender */
+  /* Gender — Meta UI uses "Women"/"Men", not "Female"/"Male" */
   const g    = t.genders;
   const gender = (!g || g.length === 0 || g.length === 2) ? 'All'
-               : g[0] === 1 ? 'Male' : 'Female';
+               : g[0] === 1 ? 'Men' : 'Women';
 
   /* Locations — mirror every geo target type Meta supports so the
      displayed value matches what's actually configured. A point with
-     radius (Place / Custom Location) is rendered as "Name + Xkm". */
+     radius (Place / Custom Location) is rendered as "Name + Xkm".
+     Country codes are expanded to names (IN → India). */
   const geo = t.geo_locations || {};
   const locs = [];
   const fmtRadius = p => p.radius ? ` +${p.radius}${p.distance_unit || 'km'}` : '';
-  if (geo.countries)        locs.push(...geo.countries);
+  if (geo.countries)        locs.push(...geo.countries.map(countryName));
   if (geo.country_groups)   locs.push(...geo.country_groups);
   if (geo.regions)          locs.push(...geo.regions.map(r => r.name || r.key).filter(Boolean));
   if (geo.cities)           locs.push(...geo.cities.map(c => (c.name || c.key) + fmtRadius(c)).filter(Boolean));
@@ -768,11 +806,14 @@ function parseTargeting(t) {
   if (geo.neighborhoods)    locs.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
   if (geo.subneighborhoods) locs.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
   if (geo.zips && geo.zips.length) locs.push(`${geo.zips.length} ZIP(s)`);
-  const locations = locs.length
+  const exclN = countExclusions(t.excluded_geo_locations);
+  const inclStr = locs.length
     ? locs.slice(0,4).join(', ') + (locs.length > 4 ? ` +${locs.length-4}` : '')
     : '—';
+  const locations = exclN > 0 ? `${inclStr} · Excl ${exclN}` : inclStr;
 
-  /* Interests / behaviours */
+  /* Interests / behaviours — empty case matches Meta UI's phrasing
+     "All demographics, interests and behaviours" (i.e. broad). */
   const iList = [];
   if (t.interests)     iList.push(...t.interests.map(i => i.name));
   if (t.behaviors)     iList.push(...t.behaviors.map(b => b.name));
@@ -782,7 +823,7 @@ function parseTargeting(t) {
   });
   const interests = iList.length
     ? iList.slice(0,3).join(', ') + (iList.length > 3 ? ` +${iList.length-3}` : '')
-    : '—';
+    : 'All demographics, interests and behaviours';
 
   return { age, gender, locations, interests };
 }
@@ -975,7 +1016,7 @@ const SETUP_METRICS = [
     },
     actual: item => {
       const t = item.targeting || {};
-      return `${t.age_min || 18}–${t.age_max || 65}`;
+      return `${t.age_min || 18} - ${t.age_max || 65}`;
     }
   },
   {
@@ -990,7 +1031,7 @@ const SETUP_METRICS = [
     actual: item => {
       const g = item.targeting?.genders;
       if (!g || g.length === 0 || g.length === 2) return 'All (default)';
-      return g[0] === 1 ? 'Male' : 'Female';
+      return g[0] === 1 ? 'Men' : 'Women';
     }
   },
   {
@@ -1037,7 +1078,9 @@ const SETUP_METRICS = [
         if (s.interests) list.push(...s.interests.map(i => i.name));
         if (s.behaviors) list.push(...s.behaviors.map(b => b.name));
       });
-      return list.length ? `${list.length} interest${list.length===1?'':'s'}` : 'Missing';
+      return list.length
+        ? `${list.length} interest${list.length===1?'':'s'}`
+        : 'All demographics, interests and behaviours';
     }
   },
   {
@@ -1054,9 +1097,16 @@ const SETUP_METRICS = [
     },
     actual: item => {
       const t = item.targeting || {};
-      if (t.custom_audiences?.length) return `${t.custom_audiences.length} custom audience${t.custom_audiences.length===1?'':'s'}`;
-      if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length) return 'Detailed targeting';
-      return 'Broad only';
+      const exclCA = t.excluded_custom_audiences || [];
+      const exclNote = exclCA.length
+        ? ` · Excl: ${exclCA.slice(0,2).map(a => a.name || a.id).join(', ')}${exclCA.length>2?` +${exclCA.length-2}`:''}`
+        : '';
+      const advAud = t.targeting_automation?.advantage_audience === 1 ? ' · Advantage+ on' : '';
+      if (t.custom_audiences?.length)
+        return `${t.custom_audiences.length} custom audience${t.custom_audiences.length===1?'':'s'}${exclNote}${advAud}`;
+      if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length)
+        return `Detailed targeting${exclNote}${advAud}`;
+      return `Broad only${exclNote}${advAud}`;
     }
   }
 ];
