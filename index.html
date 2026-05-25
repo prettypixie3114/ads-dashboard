@@ -1305,10 +1305,15 @@ function renderKPIs() {
   row.classList.remove('hidden');
 
   /* Only roll up what's currently visible — keeps KPIs consistent
-     with the table when paused items are hidden. */
+     with the table when paused items are hidden.
+     CRITICAL: roll up at CAMPAIGN level only. Each ad set is a child of
+     a campaign, and Meta returns spend/clicks/etc. at BOTH levels for
+     the same underlying events. Summing both = exact 2× double counting
+     (verified against Meta Ads Manager: dashboard was reporting
+     ₹1,63,850 spend vs Meta's ₹81,925 — exactly 2×). */
   const visibleIds = APP.showPaused
-    ? [...APP.campaigns, ...APP.adsets].map(x => x.id)
-    : [...APP.campaigns, ...APP.adsets].filter(isLive).map(x => x.id);
+    ? APP.campaigns.map(x => x.id)
+    : APP.campaigns.filter(isLive).map(x => x.id);
   const all = visibleIds.map(id => APP.insights[id]).filter(Boolean);
   const totalSpend = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
   const totalImpr  = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
