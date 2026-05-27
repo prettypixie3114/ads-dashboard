@@ -388,7 +388,8 @@ const APP = {
   expandedCells:      {},        // { '<section>_<metricId>_<pass|fail>': true }
   admin:              false,     // true when URL has #admin — reveals ⚙ + credential form
   adsetsLoading:      false,     // true while ad sets are still in-flight on cold load
-  thresholdsSource:   'defaults' // 'sheet' once a Google Sheet override loads
+  thresholdsSource:   'defaults',// 'sheet' once a Google Sheet override loads
+  deliveryCollapsed:  {}         // { active|learning|inactive|completed: true } when collapsed
 };
 
 
@@ -1417,11 +1418,27 @@ function deliveryBucket(campaign) {
   return 'active';
 }
 
+/* Absolute launch date, e.g. "Launched 09-Apr-26" — matches the
+   DD-Mon-YY style used in the campaign names themselves. */
+function launchDateLabel(item) {
+  const raw = item.start_time || item.created_time;
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (isNaN(d)) return '—';
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `Launched ${String(d.getDate()).padStart(2,'0')}-${mon}-${String(d.getFullYear()).slice(2)}`;
+}
+/* Kept for the modal scorecard header (still reads naturally there). */
 function ageLabel(item) {
   const d = entityAgeDays(item);
   if (d === null) return '—';
   if (d === 0)    return 'launched today';
   return `launched ${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+function toggleDeliveryBucket(key) {
+  APP.deliveryCollapsed[key] = !APP.deliveryCollapsed[key];
+  renderDelivery();
 }
 
 function renderDelivery() {
@@ -1476,28 +1493,37 @@ function renderDelivery() {
         <span class="w-2 h-2 rounded-full ${META[k].dot} shrink-0"></span>
         <span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white">${escH(c.name)}</span>
         ${phase}
-        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-32 text-right hidden sm:block">${ageLabel(c)}</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden sm:block">${launchDateLabel(c)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 text-sm shrink-0" aria-hidden="true">›</span>
       </button>`;
   };
 
-  /* ── One section per non-empty bucket ── */
+  /* ── One collapsible section per non-empty bucket. Header is a
+     toggle button; body (the campaign list) hides when collapsed. ── */
   const section = (k) => {
     const list = buckets[k];
     if (!list.length) return '';
     /* Sort oldest-first within a bucket so long-running ones surface. */
     list.sort((a,b) => (entityAgeDays(b) ?? 0) - (entityAgeDays(a) ?? 0));
+    const collapsed = !!APP.deliveryCollapsed[k];
+    const panelId = `delivery_${k}`;
     return `
       <section>
-        <div class="flex items-center gap-2 mb-2.5">
+        <button type="button" onclick="toggleDeliveryBucket('${k}')"
+          aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${panelId}"
+          class="w-full flex items-center gap-2 mb-2.5 text-left cursor-pointer group">
           <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
-          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">${META[k].label}</h2>
+          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">${META[k].label}</h2>
           <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length}</span>
-          <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block ml-auto">Oldest first · tap a row for Planned vs Actual</span>
-        </div>
-        <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+          <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block ml-auto mr-1">Oldest first · tap a row for Planned vs Actual</span>
+          <svg class="w-4 h-4 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'} ${collapsed ? 'ml-auto sm:ml-0' : ''}" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M4.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        ${collapsed ? '' : `
+        <div id="${panelId}" class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
           ${list.map(c => campRow(c, k)).join('')}
-        </div>
+        </div>`}
       </section>`;
   };
 
