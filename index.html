@@ -96,8 +96,9 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <div class="border-b border-slate-200/60 dark:border-slate-700/40 bg-white/30 dark:bg-slate-900/30 px-3 sm:px-5">
   <div class="max-w-screen-2xl mx-auto flex items-center gap-1 sm:gap-2 overflow-x-auto">
-    <button id="setupTab" class="view-tab active" onclick="switchView('setup')">Setup</button>
-    <button id="perfTab"  class="view-tab"        onclick="switchView('performance')">Performance</button>
+    <button id="setupTab"    class="view-tab active" onclick="switchView('setup')">Setup</button>
+    <button id="perfTab"     class="view-tab"        onclick="switchView('performance')">Performance</button>
+    <button id="deliveryTab" class="view-tab"        onclick="switchView('delivery')">Delivery</button>
   </div>
 </div>
 
@@ -386,7 +387,8 @@ const APP = {
   showPaused:         false,     // default: hide paused for cleaner exec view
   expandedCells:      {},        // { '<section>_<metricId>_<pass|fail>': true }
   admin:              false,     // true when URL has #admin — reveals ⚙ + credential form
-  adsetsLoading:      false      // true while ad sets are still in-flight on cold load
+  adsetsLoading:      false,     // true while ad sets are still in-flight on cold load
+  thresholdsSource:   'defaults' // 'sheet' once a Google Sheet override loads
 };
 
 
@@ -473,14 +475,17 @@ async function fetchCampaigns() {
 }
 
 async function fetchAdSets() {
+  /* learning_stage_info powers the Delivery tab's "Learning" bucket. */
+  const withLearning = CONFIG.FIELDS.ADSET_SETUP + ',learning_stage_info';
   try {
     return await fetchAllPages(`${accountId()}/adsets`, {
-      fields: CONFIG.FIELDS.ADSET_SETUP,
+      fields: withLearning,
       effective_status: JSON.stringify(['ACTIVE','PAUSED'])
     });
   } catch (e) {
-    /* Retry without the heavy `targeting` field if Meta rejects the payload */
-    if (/reduce the amount of data|code 1\)/i.test(e.message)) {
+    /* Retry without the heavy `targeting` field (and learning_stage_info,
+       which some API versions/accounts reject) if Meta rejects the payload */
+    if (/reduce the amount of data|code 1\)|nonexisting field|learning_stage_info/i.test(e.message)) {
       const lite = CONFIG.FIELDS.ADSET_SETUP.split(',').filter(f => f !== 'targeting').join(',');
       return fetchAllPages(`${accountId()}/adsets`, {
         fields: lite,
@@ -708,6 +713,79 @@ function _budgetPace(item, ins) {
   return { variance: (spend - expected) / expected, expected, spend };
 }
 
+/* ── Phase helpers ──────────────────────────────────────────────
+   Age = days since the entity started running (start_time, falling
+   back to created_time). Entities ≤ PHASE1_DAYS old are still in
+   "Phase 1" and judged against the looser THRESHOLDS_PHASE1 set;
+   older entities use the strict final THRESHOLDS. */
+function entityAgeDays(item) {
+  const raw = item.start_time || item.created_time;
+  if (!raw) return null;
+  const start = new Date(raw);
+  if (isNaN(start)) return null;
+  return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
+}
+function isPhase1(item) {
+  const age = entityAgeDays(item);
+  const cutoff = CONFIG.PHASE1_DAYS ?? 30;
+  return age !== null && age <= cutoff;
+}
+function thresholdsFor(item) {
+  const p1 = CONFIG.THRESHOLDS_PHASE1 || CONFIG.THRESHOLDS;
+  return (item && isPhase1(item)) ? p1 : CONFIG.THRESHOLDS;
+}
+/* Aggregate target label for the matrix column (no specific entity):
+   shows "P1 → Final" when the two differ, single value when equal. */
+function dualTarget(key, fmt) {
+  const fn = CONFIG.THRESHOLDS?.[key];
+  const p1 = (CONFIG.THRESHOLDS_PHASE1 || {})[key] ?? fn;
+  return (p1 === fn) ? fmt(fn) : `${fmt(p1)} → ${fmt(fn)}`;
+}
+
+/* ── Live thresholds from a published Google Sheet (optional) ────
+   Fetches the CSV on first load of the day, parses rows of
+   Metric,Phase1,Final and overrides CONFIG.THRESHOLDS[_PHASE1].
+   Silent no-op if no URL set or the fetch/parse fails — baked
+   defaults remain in force. */
+async function loadThresholdSheet() {
+  const url = CONFIG.THRESHOLDS_SHEET_URL;
+  if (!url) return;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`sheet HTTP ${res.status}`);
+    const csv = await res.text();
+    const rows = csv.trim().split(/\r?\n/).map(line =>
+      line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+    );
+    if (rows.length < 2) return;
+    /* header → column indexes (case-insensitive) */
+    const head = rows[0].map(h => h.toLowerCase());
+    const iMetric = head.findIndex(h => h.includes('metric'));
+    const iP1     = head.findIndex(h => h.includes('phase'));
+    const iFinal  = head.findIndex(h => h.includes('final'));
+    if (iMetric < 0 || iFinal < 0) return;
+
+    const known = ['ROAS_TARGET','CPA_TARGET','CTR_MIN','BUDGET_VARIANCE'];
+    CONFIG.THRESHOLDS_PHASE1 = CONFIG.THRESHOLDS_PHASE1 || {};
+    rows.slice(1).forEach(r => {
+      const key = (r[iMetric] || '').toUpperCase();
+      const finalV = parseFloat(r[iFinal]);
+      const p1V    = iP1 >= 0 ? parseFloat(r[iP1]) : finalV;
+      if (key === 'PHASE1_DAYS') {
+        if (!isNaN(finalV)) CONFIG.PHASE1_DAYS = finalV;
+        return;
+      }
+      if (!known.includes(key)) return;
+      if (!isNaN(finalV)) CONFIG.THRESHOLDS[key]        = finalV;
+      if (!isNaN(p1V))     CONFIG.THRESHOLDS_PHASE1[key] = p1V;
+    });
+    APP.thresholdsSource = 'sheet';
+  } catch (e) {
+    console.warn('Threshold sheet load failed, using baked defaults:', e.message);
+    APP.thresholdsSource = 'defaults';
+  }
+}
+
 /* Metrics carry an `appliesTo` array so the compliance evaluator knows
    whether to run them against campaigns, ad sets, or both. Targeting
    KPIs live on ad sets only — campaign-level Setup compliance is
@@ -716,24 +794,28 @@ function _budgetPace(item, ins) {
 const PERF_METRICS = [
   {
     id: 'ctr', label: 'CTR (Click-Through Rate)',
-    target: () => `≥ ${CONFIG.THRESHOLDS.CTR_MIN}%`,
+    target: (item) => item
+      ? `≥ ${thresholdsFor(item).CTR_MIN}%`
+      : dualTarget('CTR_MIN', v => `≥ ${v}%`),
     appliesTo: ['campaign','adset'],
     evaluate: (item, ins) => {
       const impr = parseInt(ins?.impressions || 0, 10);
       if (!impr) return 'na';
-      return parseFloat(ins.ctr || 0) >= CONFIG.THRESHOLDS.CTR_MIN ? 'pass' : 'fail';
+      return parseFloat(ins.ctr || 0) >= thresholdsFor(item).CTR_MIN ? 'pass' : 'fail';
     },
     actual: (item, ins) => `${parseFloat(ins?.ctr || 0).toFixed(2)}%`
   },
   {
     id: 'cpa', label: 'Cost per Conversion',
-    target: () => `≤ ₹${CONFIG.THRESHOLDS.CPA_TARGET}`,
+    target: (item) => item
+      ? `≤ ₹${thresholdsFor(item).CPA_TARGET}`
+      : dualTarget('CPA_TARGET', v => `≤ ₹${v}`),
     appliesTo: ['campaign','adset'],
     evaluate: (item, ins) => {
       const conv = parseConversions(ins?.actions);
       const cpa  = parseCostPerConv(ins?.cost_per_action_type);
       if (!conv || cpa === null) return 'na';
-      return cpa <= CONFIG.THRESHOLDS.CPA_TARGET ? 'pass' : 'fail';
+      return cpa <= thresholdsFor(item).CPA_TARGET ? 'pass' : 'fail';
     },
     actual: (item, ins) => {
       const cpa = parseCostPerConv(ins?.cost_per_action_type);
@@ -742,13 +824,15 @@ const PERF_METRICS = [
   },
   {
     id: 'roas', label: 'ROAS',
-    target: () => `≥ ${CONFIG.THRESHOLDS.ROAS_TARGET}x`,
+    target: (item) => item
+      ? `≥ ${thresholdsFor(item).ROAS_TARGET}x`
+      : dualTarget('ROAS_TARGET', v => `≥ ${v}x`),
     appliesTo: ['campaign','adset'],
     evaluate: (item, ins) => {
       const spend = parseFloat(ins?.spend || 0);
       const rev   = _revenue(ins);
       if (rev === 0 || spend === 0) return 'na';
-      return (rev / spend) >= CONFIG.THRESHOLDS.ROAS_TARGET ? 'pass' : 'fail';
+      return (rev / spend) >= thresholdsFor(item).ROAS_TARGET ? 'pass' : 'fail';
     },
     actual: (item, ins) => {
       const spend = parseFloat(ins?.spend || 0);
@@ -758,12 +842,14 @@ const PERF_METRICS = [
   },
   {
     id: 'budget', label: 'Budget Pace',
-    target: () => `within ±${(CONFIG.THRESHOLDS.BUDGET_VARIANCE * 100).toFixed(0)}% of planned`,
+    target: (item) => item
+      ? `within ±${(thresholdsFor(item).BUDGET_VARIANCE * 100).toFixed(0)}% of planned`
+      : dualTarget('BUDGET_VARIANCE', v => `±${(v * 100).toFixed(0)}%`),
     appliesTo: ['campaign','adset'],
     evaluate: (item, ins) => {
       const p = _budgetPace(item, ins);
       if (!p) return 'na';
-      return Math.abs(p.variance) <= CONFIG.THRESHOLDS.BUDGET_VARIANCE ? 'pass' : 'fail';
+      return Math.abs(p.variance) <= thresholdsFor(item).BUDGET_VARIANCE ? 'pass' : 'fail';
     },
     actual: (item, ins) => {
       const p = _budgetPace(item, ins);
@@ -1302,8 +1388,137 @@ function renderHierarchy() {
   renderKPIs();
 }
 
+/* ══════════════════════════════════════════════════════════════ */
+/*  8b. DELIVERY TAB                                             */
+/*  Snapshot of where each campaign sits in its delivery life-    */
+/*  cycle, plus how long it's been running (aging).               */
+/* ══════════════════════════════════════════════════════════════ */
+
+/* Bucket a campaign into exactly one delivery state. Priority order
+   matters: a campaign that has ended is "Completed" even if its
+   configured status is still ACTIVE. */
+function deliveryBucket(campaign) {
+  const es   = campaign.effective_status || campaign.status;
+  const stop = campaign.stop_time ? new Date(campaign.stop_time) : null;
+
+  /* Completed — its scheduled run window has ended. */
+  if (stop && !isNaN(stop) && stop.getTime() < Date.now()) return 'completed';
+
+  /* Inactive — paused, archived, campaign/adset paused, etc. */
+  if (es !== 'ACTIVE') return 'inactive';
+
+  /* Active + still learning — any child ad set in Meta's learning phase. */
+  const learning = APP.adsets.some(a =>
+    a.campaign_id === campaign.id &&
+    a.learning_stage_info && a.learning_stage_info.status === 'LEARNING'
+  );
+  if (learning) return 'learning';
+
+  return 'active';
+}
+
+function ageLabel(item) {
+  const d = entityAgeDays(item);
+  if (d === null) return '—';
+  if (d === 0)    return 'launched today';
+  return `launched ${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+function renderDelivery() {
+  const host = document.getElementById('hierarchyHost');
+  if (!host) return;
+
+  /* Delivery tab shows ALL statuses by design (that's the point), so it
+     ignores the Show-Paused filter — but still honours the search box. */
+  let camps = [...APP.campaigns];
+  if (APP.searchQuery) {
+    const q = APP.searchQuery.toLowerCase();
+    camps = camps.filter(c => c.name?.toLowerCase().includes(q));
+  }
+
+  document.getElementById('matrixScope').textContent =
+    `${camps.length} campaign${camps.length === 1 ? '' : 's'}`;
+
+  const buckets = { active: [], learning: [], inactive: [], completed: [] };
+  camps.forEach(c => buckets[deliveryBucket(c)].push(c));
+
+  const META = {
+    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running and out of learning' },
+    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Optimising — ad sets in learning phase' },
+    inactive:  { label: 'Inactive',  dot: 'bg-slate-400',   pill: 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/40',        desc: 'Paused, archived, or campaign-paused' },
+    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: 'Scheduled end date has passed' }
+  };
+  const ORDER = ['active','learning','inactive','completed'];
+
+  /* ── Summary stat cards ── */
+  const summary = `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      ${ORDER.map(k => `
+        <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-4">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
+            <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">${META[k].label}</span>
+          </div>
+          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100">${buckets[k].length}</div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 leading-tight">${META[k].desc}</div>
+        </div>`).join('')}
+    </div>`;
+
+  /* ── Per-campaign row (clickable → opens Planned vs Actual) ── */
+  const campRow = (c, k) => {
+    const phase = isPhase1(c)
+      ? '<span class="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">Phase 1</span>'
+      : '<span class="text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">Final</span>';
+    return `
+      <button type="button" onclick="openAnalysis('${c.id}')"
+        title="${escH(c.name)}"
+        class="w-full text-left flex items-center gap-3 py-2.5 px-3 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer group">
+        <span class="w-2 h-2 rounded-full ${META[k].dot} shrink-0"></span>
+        <span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white">${escH(c.name)}</span>
+        ${phase}
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-32 text-right hidden sm:block">${ageLabel(c)}</span>
+        <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 text-sm shrink-0" aria-hidden="true">›</span>
+      </button>`;
+  };
+
+  /* ── One section per non-empty bucket ── */
+  const section = (k) => {
+    const list = buckets[k];
+    if (!list.length) return '';
+    /* Sort oldest-first within a bucket so long-running ones surface. */
+    list.sort((a,b) => (entityAgeDays(b) ?? 0) - (entityAgeDays(a) ?? 0));
+    return `
+      <section>
+        <div class="flex items-center gap-2 mb-2.5">
+          <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
+          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">${META[k].label}</h2>
+          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length}</span>
+          <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block ml-auto">Oldest first · tap a row for Planned vs Actual</span>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+          ${list.map(c => campRow(c, k)).join('')}
+        </div>
+      </section>`;
+  };
+
+  const learningNote = APP.adsetsLoading
+    ? `<p class="text-[11px] text-slate-400 dark:text-slate-500 italic">Learning-phase detection completes once ad set data finishes loading…</p>`
+    : '';
+
+  host.innerHTML = `
+    <div class="space-y-5">
+      ${summary}
+      ${learningNote}
+      ${ORDER.map(section).join('')}
+      ${camps.length === 0 ? '<div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-400">No campaigns match.</div>' : ''}
+    </div>`;
+}
+
 /* Backwards-compatible alias — other code paths still call renderAll */
-function renderAll() { renderHierarchy(); }
+function renderAll() {
+  if (APP.view === 'delivery') { renderDelivery(); renderKPIs(); }
+  else                         { renderHierarchy(); }   /* calls renderKPIs() itself */
+}
 
 function renderKPIs() {
   const row = document.getElementById('kpiRow');
@@ -1377,6 +1592,9 @@ async function loadData() {
     APP.adsets         = [];
     APP.adsetsLoading  = true;
 
+    /* Pull live thresholds from the Google Sheet (if configured) before
+       evaluating compliance. No-op + fast when no sheet URL is set. */
+    const sheetP  = loadThresholdSheet();
     const campsP  = fetchCampaigns();
     const adsetsP = fetchAdSets();
 
@@ -1393,7 +1611,7 @@ async function loadData() {
       renderAll();
     }).catch(() => { /* error surfaces via the outer await below */ });
 
-    await Promise.all([campsP, adsetsP]);
+    await Promise.all([campsP, adsetsP, sheetP]);
 
     if (APP.view === 'performance') {
       await loadInsights();
@@ -1717,8 +1935,9 @@ function renderCalendar(year, month, showPrev, showNext) {
 
 function switchView(view) {
   APP.view = view;
-  document.getElementById('setupTab').classList.toggle('active', view === 'setup');
-  document.getElementById('perfTab').classList.toggle('active',  view === 'performance');
+  document.getElementById('setupTab').classList.toggle('active',    view === 'setup');
+  document.getElementById('perfTab').classList.toggle('active',     view === 'performance');
+  document.getElementById('deliveryTab').classList.toggle('active', view === 'delivery');
 
   /* Re-render IMMEDIATELY so the matrix swaps to the new tab's KPIs on
      the first click. If Performance needs insights we haven't fetched
@@ -2123,7 +2342,7 @@ function openAnalysis(id) {
         const row = {
           entity:  child.name,
           metric:  m.label,
-          planned: m.target(),
+          planned: m.target(child),
           actual:  m.actual(child, cIns),
           details: m.details ? m.details(child, cIns) : null
         };
@@ -2138,7 +2357,7 @@ function openAnalysis(id) {
       if (r === 'na') return;
       const row = {
         metric:  m.label,
-        planned: m.target(),
+        planned: m.target(item),
         actual:  m.actual(item, ins),
         details: m.details ? m.details(item, ins) : null
       };
@@ -2187,6 +2406,54 @@ function openAnalysis(id) {
             : `<strong class="${pctColor}">${score.pass}</strong> of <strong>${score.total}</strong> KPIs met · <strong class="text-rose-500">${score.fail}</strong> need action`}
           ${score.isRollup ? `<span class="block text-[11px] text-slate-400 mt-0.5">Rolled up from ${score.childCount} ad set${score.childCount===1?'':'s'} (campaigns don't carry targeting)</span>` : ''}
         </div>
+      </div>
+    </div>`;
+
+  /* 0b. KPI Scorecard — every Performance KPI for this entity in one
+     table: Target | Actual | Status. Phase-aware targets (Phase 1 vs
+     Final based on entity age). This is the "single-view compliance"
+     the exec asked for: see threshold and actual side by side. */
+  const phaseTag = isPhase1(item)
+    ? '<span class="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">Phase 1</span>'
+    : '<span class="text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">Final</span>';
+  const ageD = entityAgeDays(item);
+  const scoreRows = PERF_METRICS.map(m => {
+    const r = m.evaluate(item, ins);
+    const actual = m.actual ? m.actual(item, ins) : '—';
+    const badge = r === 'pass'
+      ? '<span class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded">✓ Pass</span>'
+      : r === 'fail'
+      ? '<span class="text-[10px] font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded">✗ Fail</span>'
+      : '<span class="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">No data</span>';
+    const actCls = r === 'pass' ? 'text-emerald-600 dark:text-emerald-400'
+                 : r === 'fail' ? 'text-rose-600 dark:text-rose-400'
+                 : 'text-slate-400 dark:text-slate-500';
+    return `
+      <tr class="border-b border-slate-200/40 dark:border-slate-700/30 last:border-0">
+        <td class="py-2 pl-4 pr-2 text-xs font-medium text-slate-700 dark:text-slate-200">${m.label}</td>
+        <td class="py-2 px-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">${m.target(item)}</td>
+        <td class="py-2 px-2 text-xs font-mono font-semibold ${actCls} whitespace-nowrap">${actual}</td>
+        <td class="py-2 pr-4 pl-2 text-right">${badge}</td>
+      </tr>`;
+  }).join('');
+  const scorecardHtml = `
+    <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/30 overflow-hidden">
+      <div class="flex items-center gap-2 px-4 pt-3 pb-2">
+        ${phaseTag}
+        <span class="text-[10px] text-slate-400 dark:text-slate-500">${ageD === null ? 'Performance scorecard' : `${ageLabel(item)} · thresholds: ${APP.thresholdsSource === 'sheet' ? 'Google Sheet' : 'defaults'}`}</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-200/60 dark:border-slate-700/40">
+              <th class="text-left font-semibold py-1.5 pl-4 pr-2">KPI</th>
+              <th class="text-left font-semibold py-1.5 px-2">Target</th>
+              <th class="text-left font-semibold py-1.5 px-2">Actual</th>
+              <th class="text-right font-semibold py-1.5 pr-4 pl-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>${scoreRows}</tbody>
+        </table>
       </div>
     </div>`;
 
@@ -2316,6 +2583,12 @@ function openAnalysis(id) {
   document.getElementById('analysisContent').innerHTML = `
     <div class="space-y-5">
       ${gaugeHtml}
+
+      <!-- 0b. KPI Scorecard — Target vs Actual vs Status, one glance -->
+      <section>
+        ${sectionHead('✓', 'KPI Scorecard — Target vs Actual')}
+        ${scorecardHtml}
+      </section>
 
       <!-- 1. KPIs -->
       <section>
@@ -2450,7 +2723,7 @@ function exportCSV() {
               `${it.name} › ${child.name}`,
               m.label,
               r === 'pass' ? 'Compliant' : 'Non-Compliant',
-              m.target(),
+              m.target(child),
               m.actual ? m.actual(child, cIns) : '',
               pctStr,
               passTot
@@ -2468,7 +2741,7 @@ function exportCSV() {
             it.name,
             m.label,
             r === 'pass' ? 'Compliant' : 'Non-Compliant',
-            m.target(),
+            m.target(it),
             m.actual ? m.actual(it, ins) : '',
             pctStr,
             passTot
