@@ -1113,13 +1113,21 @@ const SETUP_HANDLERS = {
       if (targeted.length === 0) return 'fail';
       return targeted.every(n => allowed.has(n)) ? 'pass' : 'fail';
     },
-    /* Compact one-line summary: "Incl 5 · Excl 47 ⚠" — counts at a
-       glance, full lists available via the modal's "View N" expand. */
+    /* Show first 3 city names so the team recognises locations at a
+       glance, plus the total count. Full list (200+ entries) opens
+       via the modal's "View N" expand link. Excluded count surfaces
+       with a warning marker since any exclusion auto-fails the KPI. */
     actual(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
       if (!inc.length && !exc.length) return '— no location';
-      const incPart = inc.length ? `Incl ${inc.length}` : 'no inclusions';
+      let incPart;
+      if (!inc.length) {
+        incPart = 'no inclusions';
+      } else {
+        const preview = inc.slice(0, 3).join(', ');
+        incPart = inc.length <= 3 ? preview : `${preview} +${inc.length - 3} more`;
+      }
       const excPart = exc.length ? ` · ⚠ Excl ${exc.length}` : '';
       return incPart + excPart;
     },
@@ -1766,34 +1774,57 @@ function renderHierarchy() {
 /*  cycle, plus how long it's been running (aging).               */
 /* ══════════════════════════════════════════════════════════════ */
 
+/* Count purchases (action_type='purchase') only — distinct from
+   parseConversions which counts purchase+lead+signup+subscribe+contact.
+   Used for the Delivery 'Completed' threshold (≥50 orders). */
+function _purchases(ins) {
+  return (ins?.actions || [])
+    .filter(a => a.action_type === 'purchase')
+    .reduce((s, a) => s + parseInt(a.value || 0, 10), 0);
+}
+
+/* Configurable threshold for "Completed" bucket. */
+const COMPLETED_PURCHASES_MIN = 50;
+
 /* Bucket an entity (ad set OR campaign) into exactly one delivery
-   state. For ad sets we read learning_stage_info directly off the ad
-   set; for campaigns we aggregate from children (legacy path).
+   state.
    Priority:
      1. Inactive   — effective_status ≠ ACTIVE (paused / archived / …)
-     2. Learning   — ACTIVE + in Meta's learning phase
-     3. Completed  — ACTIVE + has graduated from learning
-     4. Active     — ACTIVE but no learning_stage_info returned (fallback) */
+     2. Learning   — ACTIVE + Meta says still LEARNING
+     3. Completed  — ACTIVE + passed learning + ≥50 purchases in the
+                     currently-selected insights window (per spec:
+                     "passed the learning phase and made 50 orders in
+                     last 7 days" — switch date range to Last 7d for
+                     literal 7-day evaluation).
+     4. Active     — ACTIVE but doesn't meet Completed yet (or learning
+                     info not returned). Default for graduated-but-low-
+                     volume ad sets. */
 function deliveryBucket(item) {
   const es = item.effective_status || item.status;
   if (es !== 'ACTIVE') return 'inactive';
 
-  /* Ad set has a campaign_id but no objective; campaign has objective. */
   const isAdset = !item.objective;
   if (isAdset) {
     const lsi = item.learning_stage_info;
-    if (!lsi || !lsi.status) return 'active';
-    if (lsi.status === 'LEARNING') return 'learning';
-    return 'completed';
+    if (lsi && lsi.status === 'LEARNING') return 'learning';
+    /* Past learning (SUCCESS / LEARNING_LIMITED / no info) — now check
+       the 50-purchases gate. */
+    const purchases = _purchases(APP.insights[item.id]);
+    return purchases >= COMPLETED_PURCHASES_MIN ? 'completed' : 'active';
   }
 
-  /* Campaign — aggregate from children for campaign-level reporting. */
+  /* Campaign — Completed only if ALL active children pass the same
+     gate (graduated + 50+ purchases each). Any child in Learning →
+     Learning. Otherwise → Active. */
   const children = APP.adsets.filter(a => a.campaign_id === item.id);
-  const withInfo = children.filter(a => a.learning_stage_info && a.learning_stage_info.status);
-  if (withInfo.length === 0) return 'active';
-  const anyLearning = withInfo.some(a => a.learning_stage_info.status === 'LEARNING');
+  const activeChildren = children.filter(a => (a.effective_status || a.status) === 'ACTIVE');
+  if (activeChildren.length === 0) return 'active';
+  const anyLearning = activeChildren.some(a =>
+    a.learning_stage_info && a.learning_stage_info.status === 'LEARNING');
   if (anyLearning) return 'learning';
-  return 'completed';
+  const allCompleted = activeChildren.every(a =>
+    _purchases(APP.insights[a.id]) >= COMPLETED_PURCHASES_MIN);
+  return allCompleted ? 'completed' : 'active';
 }
 
 /* Absolute launch date, e.g. "Launched 09-Apr-26" — matches the
@@ -1848,10 +1879,10 @@ function renderDelivery() {
     `${adsets.length} ad set${adsets.length === 1 ? '' : 's'} · ${APP.campaigns.length} campaigns`;
 
   const META = {
-    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running — learning state unknown' },
-    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Active + in Meta learning phase' },
+    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running — yet to hit completion bar' },
+    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Active + still in Meta learning phase' },
     inactive:  { label: 'Inactive',  dot: 'bg-slate-400',   pill: 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/40',        desc: 'Paused, archived, or campaign-paused' },
-    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: 'Active + graduated from learning' }
+    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: `Past learning + ≥${COMPLETED_PURCHASES_MIN} orders in window` }
   };
   const ORDER = ['active','learning','inactive','completed'];
 
@@ -1870,11 +1901,12 @@ function renderDelivery() {
         </div>`).join('')}
     </div>`;
 
-  /* ── Per-ad-set row (clickable → opens Planned vs Actual) ── */
+  /* ── Per-ad-set row (clickable → opens Planned vs Actual).
+     No Phase-1/Final tag here — that's a threshold tier (internal
+     target benchmark), not a delivery status, and showing it next
+     to delivery buckets created confusion. The tier is still visible
+     in the modal's scorecard where it belongs. ── */
   const adsetRow = (a, k) => {
-    const phase = isPhase1(a)
-      ? '<span class="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">Phase 1</span>'
-      : '<span class="text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">Final</span>';
     const campName = campNameById[a.campaign_id] || '';
     return `
       <button type="button" onclick="openAnalysis('${a.id}')"
@@ -1885,7 +1917,6 @@ function renderDelivery() {
           <div class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white">${escH(a.name)}</div>
           ${campName ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">in ${escH(campName)}</div>` : ''}
         </div>
-        ${phase}
         <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden sm:block">${launchDateLabel(a)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 text-sm shrink-0" aria-hidden="true">›</span>
       </button>`;
