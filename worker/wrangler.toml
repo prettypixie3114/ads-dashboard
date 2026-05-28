@@ -1,0 +1,8 @@
+name = "meta-ads-ga4"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Secrets (set via wrangler or Cloudflare Dashboard — do NOT commit values):
+#   wrangler secret put GA4_SERVICE_ACCOUNT
+#   wrangler secret put GA4_PROPERTY_ID
+#   wrangler secret put ALLOWED_ORIGIN     # optional; defaults to '*'

@@ -110,6 +110,13 @@ if (typeof CONFIG === 'undefined') {
        https://docs.google.com/spreadsheets/d/[THIS_PART]/edit  */
     SHEET_ID: '1MEpQjS_cIs3qGDBlBZWBorpwyHgKFbtenA3wIHxnDbY',
 
+    /* ── GA4 proxy Worker (optional, for Sessions / Engagement / Bounce) ──
+       Cloudflare Worker URL that holds the GA4 service-account key and
+       proxies real-time queries to the GA4 Data API. See worker/README.md
+       for the one-time deploy steps. Leave empty until the worker is up —
+       the four GA4 cards will show 'Not configured' until then. */
+    GA4_WORKER_URL: '',
+
     /* ── UI defaults ─────────────────────────────────────────────── */
     UI: {
       DEFAULT_PRESET:   'last_30d',

@@ -126,13 +126,14 @@
     </button>
   </div>
 
-  <!-- ── KPI Cards (Performance view only). Order requested by the team:
-       Impressions → Clicks (All) → CTR → Link Clicks → CPM, plus the
-       core money KPIs (Spend, Purchases Conv. Value, Conversions, ROAS).
-       GA4 metrics (Sessions, Engaged Sessions, Engagement Rate, Bounce
-       Rate) are intentionally NOT shown here — they live in GA4, not
-       in Meta, and need a separate integration before they can render. -->
-  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-9 gap-3">
+  <!-- ── KPI Cards (Performance view only). Order requested by team:
+       Impressions, Clicks (All), CTR, Link Clicks, Sessions, Engaged
+       Sessions, Engagement Rate, Bounce Rate, CPM (the 9 mainline KPIs)
+       — then the money strip (Spend, Purchases Conv. Value, Conversions,
+       ROAS) on a second row. GA4 cards (kpiSessions / kpiEngagedSessions
+       / kpiEngagementRate / kpiBounceRate) come from the Cloudflare
+       proxy worker — see worker/README.md. -->
+  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3">
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
       <div id="kpiImpressions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
@@ -148,6 +149,22 @@
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Meta 'inline_link_clicks' — clicks on the link only (excludes profile / like / etc.)">Link Clicks</div>
       <div id="kpiLinkClicks" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="GA4 'sessions' — visits to the landing page from this campaign">Sessions</div>
+      <div id="kpiSessions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="GA4 'engagedSessions' — sessions with >10s, >1 page, or a conversion">Engaged Sessions</div>
+      <div id="kpiEngagedSessions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="GA4 'engagementRate' — engaged sessions ÷ total sessions">Engagement Rate</div>
+      <div id="kpiEngagementRate" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="GA4 'bounceRate' — single-page sessions with no engagement">Bounce Rate</div>
+      <div id="kpiBounceRate" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Cost per Mille — ad spend per 1,000 impressions">CPM</div>
@@ -399,7 +416,8 @@ const APP = {
   adsetsLoading:      false,     // true while ad sets are still in-flight on cold load
   thresholdsSource:   'defaults',// 'sheet' once a Google Sheet override loads
   setupRules:         [],        // [{kpi, target}, …] parsed from Setup sheet
-  deliveryCollapsed:  {}         // { active|learning|inactive|completed: true } when collapsed
+  deliveryCollapsed:  {},        // { active|learning|inactive|completed: true } when collapsed
+  ga4:                { totals: null, byCampaign: {}, error: null, loading: false }
 };
 
 
@@ -872,6 +890,42 @@ async function loadThresholdSheet() {
     /* Rebuild SETUP_METRICS regardless — if APP.setupRules is empty
        (sheet down) it falls back to FALLBACK_SETUP_METRICS. */
     rebuildSetupMetrics();
+  }
+}
+
+/* ── GA4 metrics via Cloudflare Worker ─────────────────────────────
+   Real-time fetch on each loadInsights() call. Worker holds the
+   service-account key so the browser never sees it. Falls back to
+   'not configured' state when GA4_WORKER_URL is unset. */
+async function loadGa4() {
+  APP.ga4.error = null;
+  const url = CONFIG.GA4_WORKER_URL;
+  if (!url) {
+    APP.ga4.totals = null;
+    APP.ga4.byCampaign = {};
+    APP.ga4.error = 'not_configured';
+    return;
+  }
+  if (!APP.since || !APP.until) return;
+  APP.ga4.loading = true;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('since', APP.since);
+    u.searchParams.set('until', APP.until);
+    const r = await fetch(u.toString(), { cache: 'no-store' });
+    const data = await r.json();
+    if (!r.ok || data.error) {
+      throw new Error(data.error || `Worker HTTP ${r.status}`);
+    }
+    APP.ga4.totals     = data.totals     || null;
+    APP.ga4.byCampaign = data.byCampaign || {};
+  } catch (e) {
+    console.warn('GA4 load failed:', e.message);
+    APP.ga4.totals = null;
+    APP.ga4.byCampaign = {};
+    APP.ga4.error = e.message;
+  } finally {
+    APP.ga4.loading = false;
   }
 }
 
@@ -2007,6 +2061,25 @@ function renderKPIs() {
   set('kpiPurchaseValue', totalRev > 0 ? `₹${totalRev.toLocaleString('en-IN',{maximumFractionDigits:0})}` : muted);
   set('kpiConversions',   totalConv.toLocaleString('en-IN'));
   set('kpiROAS',          (roas !== null && totalRev > 0) ? `${roas.toFixed(2)}×` : muted);
+
+  /* ── GA4 metrics (4 cards) — populate from Cloudflare proxy worker ── */
+  const g = APP.ga4 || {};
+  const ga4Placeholder = !CONFIG.GA4_WORKER_URL
+    ? '<span class="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Pending GA4 setup</span>'
+    : g.error && g.error !== 'not_configured'
+      ? '<span class="text-[10px] text-rose-500 font-normal" title="' + escH(g.error) + '">GA4 error</span>'
+      : muted;
+  if (g.totals) {
+    set('kpiSessions',        g.totals.sessions.toLocaleString('en-IN'));
+    set('kpiEngagedSessions', g.totals.engagedSessions.toLocaleString('en-IN'));
+    set('kpiEngagementRate',  `${(g.totals.engagementRate * 100).toFixed(1)}%`);
+    set('kpiBounceRate',      `${(g.totals.bounceRate * 100).toFixed(1)}%`);
+  } else {
+    set('kpiSessions',        ga4Placeholder);
+    set('kpiEngagedSessions', ga4Placeholder);
+    set('kpiEngagementRate',  ga4Placeholder);
+    set('kpiBounceRate',      ga4Placeholder);
+  }
 }
 
 
@@ -2140,17 +2213,18 @@ async function loadInsights() {
   if (!APP.since || !APP.until) return;
 
   /* KPI skeleton */
-  ['kpiImpressions','kpiClicks','kpiCTR','kpiLinkClicks','kpiCPM','kpiSpend','kpiPurchaseValue','kpiConversions','kpiROAS'].forEach(id => {
+  ['kpiImpressions','kpiClicks','kpiCTR','kpiLinkClicks','kpiSessions','kpiEngagedSessions','kpiEngagementRate','kpiBounceRate','kpiCPM','kpiSpend','kpiPurchaseValue','kpiConversions','kpiROAS'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<span class="skeleton inline-block w-16 h-5 rounded"></span>';
   });
 
   APP.insights = {};
   try {
-    /* Two parallel calls instead of ~94 per-entity calls */
+    /* Two parallel Meta calls + one GA4 call (no-op if worker URL unset) */
     const [campRows, adsetRows] = await Promise.all([
       fetchAccountInsights('campaign'),
-      fetchAccountInsights('adset')
+      fetchAccountInsights('adset'),
+      loadGa4()    /* fire-and-forget — populates APP.ga4 in place */
     ]);
     campRows.forEach(r  => { if (r.campaign_id) APP.insights[r.campaign_id] = r; });
     adsetRows.forEach(r => { if (r.adset_id)    APP.insights[r.adset_id]    = r; });
@@ -2925,6 +2999,37 @@ function openAnalysis(id) {
       </div>
     </div>`;
 
+  /* GA4 panel — looks up this entity's campaign by name in
+     APP.ga4.byCampaign (set by loadGa4). Ad sets show their parent
+     campaign's numbers (GA4 doesn't break down by ad set). */
+  const campNameForGa4 = isCamp
+    ? item.name
+    : (APP.campaigns.find(c => c.id === item.campaign_id)?.name || '');
+  const ga4Row = (APP.ga4 && APP.ga4.byCampaign) ? APP.ga4.byCampaign[campNameForGa4] : null;
+  const ga4Html = !CONFIG.GA4_WORKER_URL
+    ? `<div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/20 p-4 text-[11px] text-slate-500 dark:text-slate-400">
+         <strong class="text-slate-600 dark:text-slate-300">GA4 not configured.</strong>
+         Deploy the proxy worker (see <span class="font-mono">worker/README.md</span>)
+         and set <span class="font-mono">GA4_WORKER_URL</span> in <span class="font-mono">config.example.js</span> to populate Sessions / Engagement / Bounce here.
+       </div>`
+    : ga4Row
+    ? `<div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/30 p-4">
+         <div class="flex items-center gap-2 mb-3">
+           <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">GA4 — ${isCamp ? 'this campaign' : `parent campaign · ${escH(campNameForGa4)}`}</span>
+         </div>
+         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+           <div><div class="text-[10px] uppercase tracking-wider text-slate-400">Sessions</div><div class="text-sm font-semibold text-slate-700 dark:text-slate-200 mt-0.5">${ga4Row.sessions.toLocaleString('en-IN')}</div></div>
+           <div><div class="text-[10px] uppercase tracking-wider text-slate-400">Engaged</div><div class="text-sm font-semibold text-slate-700 dark:text-slate-200 mt-0.5">${ga4Row.engagedSessions.toLocaleString('en-IN')}</div></div>
+           <div><div class="text-[10px] uppercase tracking-wider text-slate-400">Engagement Rate</div><div class="text-sm font-semibold text-slate-700 dark:text-slate-200 mt-0.5">${(ga4Row.engagementRate * 100).toFixed(1)}%</div></div>
+           <div><div class="text-[10px] uppercase tracking-wider text-slate-400">Bounce Rate</div><div class="text-sm font-semibold text-slate-700 dark:text-slate-200 mt-0.5">${(ga4Row.bounceRate * 100).toFixed(1)}%</div></div>
+         </div>
+       </div>`
+    : `<div class="rounded-xl border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/40 dark:bg-amber-500/[0.04] p-4 text-[11px] text-slate-600 dark:text-slate-300">
+         <strong class="text-amber-700 dark:text-amber-400">No GA4 match.</strong>
+         No rows in GA4 for <span class="font-mono">utm_campaign = "${escH(campNameForGa4)}"</span>.
+         Check that the Meta campaign name appears exactly that way in GA4's <em>Session campaign</em> dimension (verify UTM tagging on the ad URL).
+       </div>`;
+
   /* 1. KPIs — actual numbers */
   const kpi = (label, val) => `
     <div>
@@ -3056,6 +3161,12 @@ function openAnalysis(id) {
       <section>
         ${sectionHead('✓', 'KPI Scorecard — Target vs Actual')}
         ${scorecardHtml}
+      </section>
+
+      <!-- 0c. GA4 engagement panel (proxy worker) -->
+      <section>
+        ${sectionHead('G', 'GA4 Engagement')}
+        ${ga4Html}
       </section>
 
       <!-- 1. KPIs -->
