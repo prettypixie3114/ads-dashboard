@@ -1113,11 +1113,15 @@ const SETUP_HANDLERS = {
       if (targeted.length === 0) return 'fail';
       return targeted.every(n => allowed.has(n)) ? 'pass' : 'fail';
     },
+    /* Compact one-line summary: "Incl 5 · Excl 47 ⚠" — counts at a
+       glance, full lists available via the modal's "View N" expand. */
     actual(item) {
-      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
       const inc = _flattenGeo(item.targeting?.geo_locations);
-      const incStr = inc.length ? inc.slice(0,3).join(', ') + (inc.length>3 ? ` +${inc.length-3}` : '') : '—';
-      return exc.length ? `${incStr} · ⚠ Excl ${exc.length}` : incStr;
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      if (!inc.length && !exc.length) return '— no location';
+      const incPart = inc.length ? `Incl ${inc.length}` : 'no inclusions';
+      const excPart = exc.length ? ` · ⚠ Excl ${exc.length}` : '';
+      return incPart + excPart;
     },
     details(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
@@ -1762,26 +1766,33 @@ function renderHierarchy() {
 /*  cycle, plus how long it's been running (aging).               */
 /* ══════════════════════════════════════════════════════════════ */
 
-/* Bucket a campaign into exactly one delivery state. Priority order:
-     1. Inactive   — effective_status ≠ ACTIVE (paused/archived/…)
-     2. Learning   — ACTIVE + ≥1 child ad set still in Meta's learning phase
-     3. Completed  — ACTIVE + ALL child ad sets have passed learning
-                     (learning_stage_info.status ≠ LEARNING)
-     4. Active     — ACTIVE but learning_stage_info wasn't returned
-                     for any child ad set, so we can't tell if it has
-                     graduated yet. Safe fallback. */
-function deliveryBucket(campaign) {
-  const es = campaign.effective_status || campaign.status;
+/* Bucket an entity (ad set OR campaign) into exactly one delivery
+   state. For ad sets we read learning_stage_info directly off the ad
+   set; for campaigns we aggregate from children (legacy path).
+   Priority:
+     1. Inactive   — effective_status ≠ ACTIVE (paused / archived / …)
+     2. Learning   — ACTIVE + in Meta's learning phase
+     3. Completed  — ACTIVE + has graduated from learning
+     4. Active     — ACTIVE but no learning_stage_info returned (fallback) */
+function deliveryBucket(item) {
+  const es = item.effective_status || item.status;
   if (es !== 'ACTIVE') return 'inactive';
 
-  const children = APP.adsets.filter(a => a.campaign_id === campaign.id);
-  const withInfo = children.filter(a => a.learning_stage_info && a.learning_stage_info.status);
-  if (withInfo.length === 0) return 'active';   /* can't tell — fall back */
+  /* Ad set has a campaign_id but no objective; campaign has objective. */
+  const isAdset = !item.objective;
+  if (isAdset) {
+    const lsi = item.learning_stage_info;
+    if (!lsi || !lsi.status) return 'active';
+    if (lsi.status === 'LEARNING') return 'learning';
+    return 'completed';
+  }
 
+  /* Campaign — aggregate from children for campaign-level reporting. */
+  const children = APP.adsets.filter(a => a.campaign_id === item.id);
+  const withInfo = children.filter(a => a.learning_stage_info && a.learning_stage_info.status);
+  if (withInfo.length === 0) return 'active';
   const anyLearning = withInfo.some(a => a.learning_stage_info.status === 'LEARNING');
   if (anyLearning) return 'learning';
-
-  /* Every child ad set with learning info has graduated. */
   return 'completed';
 }
 
@@ -1812,29 +1823,39 @@ function renderDelivery() {
   const host = document.getElementById('hierarchyHost');
   if (!host) return;
 
-  /* Delivery tab shows ALL statuses by design (that's the point), so it
-     ignores the Show-Paused filter — but still honours the search box. */
-  let camps = [...APP.campaigns];
+  /* AD-SET level bucketing — matches Meta Ads Manager's default
+     "Ad sets" view (where the team reads delivery / learning state).
+     Per the team: "we have 70 active ad sets all in learning so the
+     display must be correct as per the real truth." Counts here are
+     ad sets, not campaigns. */
+  let adsets = [...APP.adsets];
   if (APP.searchQuery) {
     const q = APP.searchQuery.toLowerCase();
-    camps = camps.filter(c => c.name?.toLowerCase().includes(q));
+    adsets = adsets.filter(a => a.name?.toLowerCase().includes(q));
   }
 
-  document.getElementById('matrixScope').textContent =
-    `${camps.length} campaign${camps.length === 1 ? '' : 's'}`;
+  const campNameById = {};
+  APP.campaigns.forEach(c => { campNameById[c.id] = c.name; });
 
+  /* Campaign-level counts shown as a footnote on each card so you
+     still see "10 campaigns" alongside the ad-set total. */
   const buckets = { active: [], learning: [], inactive: [], completed: [] };
-  camps.forEach(c => buckets[deliveryBucket(c)].push(c));
+  adsets.forEach(a => buckets[deliveryBucket(a)].push(a));
+  const campsByBucket = { active: new Set(), learning: new Set(), inactive: new Set(), completed: new Set() };
+  adsets.forEach(a => campsByBucket[deliveryBucket(a)].add(a.campaign_id));
+
+  document.getElementById('matrixScope').textContent =
+    `${adsets.length} ad set${adsets.length === 1 ? '' : 's'} · ${APP.campaigns.length} campaigns`;
 
   const META = {
     active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running — learning state unknown' },
-    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Active + ad sets still in Meta learning phase' },
+    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Active + in Meta learning phase' },
     inactive:  { label: 'Inactive',  dot: 'bg-slate-400',   pill: 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/40',        desc: 'Paused, archived, or campaign-paused' },
-    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: 'Active + all ad sets graduated from learning' }
+    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: 'Active + graduated from learning' }
   };
   const ORDER = ['active','learning','inactive','completed'];
 
-  /* ── Summary stat cards ── */
+  /* ── Summary stat cards: BIG number = ad sets, footnote = campaigns ── */
   const summary = `
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
       ${ORDER.map(k => `
@@ -1843,34 +1864,37 @@ function renderDelivery() {
             <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
             <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">${META[k].label}</span>
           </div>
-          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100">${buckets[k].length}</div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 leading-tight">${META[k].desc}</div>
+          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100">${buckets[k].length}<span class="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">ad sets</span></div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">across ${campsByBucket[k].size} campaign${campsByBucket[k].size === 1 ? '' : 's'}</div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-tight">${META[k].desc}</div>
         </div>`).join('')}
     </div>`;
 
-  /* ── Per-campaign row (clickable → opens Planned vs Actual) ── */
-  const campRow = (c, k) => {
-    const phase = isPhase1(c)
+  /* ── Per-ad-set row (clickable → opens Planned vs Actual) ── */
+  const adsetRow = (a, k) => {
+    const phase = isPhase1(a)
       ? '<span class="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">Phase 1</span>'
       : '<span class="text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">Final</span>';
+    const campName = campNameById[a.campaign_id] || '';
     return `
-      <button type="button" onclick="openAnalysis('${c.id}')"
-        title="${escH(c.name)}"
+      <button type="button" onclick="openAnalysis('${a.id}')"
+        title="${escH(a.name)}${campName ? ' · in ' + escH(campName) : ''}"
         class="w-full text-left flex items-center gap-3 py-2.5 px-3 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer group">
-        <span class="w-2 h-2 rounded-full ${META[k].dot} shrink-0"></span>
-        <span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white">${escH(c.name)}</span>
+        <span class="w-2 h-2 rounded-full ${META[k].dot} shrink-0 mt-1"></span>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white">${escH(a.name)}</div>
+          ${campName ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">in ${escH(campName)}</div>` : ''}
+        </div>
         ${phase}
-        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden sm:block">${launchDateLabel(c)}</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden sm:block">${launchDateLabel(a)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 text-sm shrink-0" aria-hidden="true">›</span>
       </button>`;
   };
 
-  /* ── One collapsible section per non-empty bucket. Header is a
-     toggle button; body (the campaign list) hides when collapsed. ── */
+  /* ── One collapsible section per non-empty bucket. ── */
   const section = (k) => {
     const list = buckets[k];
     if (!list.length) return '';
-    /* Sort oldest-first within a bucket so long-running ones surface. */
     list.sort((a,b) => (entityAgeDays(b) ?? 0) - (entityAgeDays(a) ?? 0));
     const collapsed = !!APP.deliveryCollapsed[k];
     const panelId = `delivery_${k}`;
@@ -1881,7 +1905,7 @@ function renderDelivery() {
           class="w-full flex items-center gap-2 mb-2.5 text-left cursor-pointer group">
           <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
           <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">${META[k].label}</h2>
-          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length}</span>
+          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length} ad set${list.length === 1 ? '' : 's'}</span>
           <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block ml-auto mr-1">Oldest first · tap a row for Planned vs Actual</span>
           <svg class="w-4 h-4 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'} ${collapsed ? 'ml-auto sm:ml-0' : ''}" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M4.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1889,7 +1913,7 @@ function renderDelivery() {
         </button>
         ${collapsed ? '' : `
         <div id="${panelId}" class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
-          ${list.map(c => campRow(c, k)).join('')}
+          ${list.map(a => adsetRow(a, k)).join('')}
         </div>`}
       </section>`;
   };
@@ -1903,7 +1927,7 @@ function renderDelivery() {
       ${summary}
       ${learningNote}
       ${ORDER.map(section).join('')}
-      ${camps.length === 0 ? '<div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-400">No campaigns match.</div>' : ''}
+      ${adsets.length === 0 ? '<div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-400">No ad sets match.</div>' : ''}
     </div>`;
 }
 
