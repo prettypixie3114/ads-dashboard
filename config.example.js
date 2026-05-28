@@ -51,13 +51,13 @@ if (typeof CONFIG === 'undefined') {
 
       CAMPAIGN_INSIGHTS: [
         'spend','impressions','clicks','reach',
-        'ctr','cpc','cpp',
+        'ctr','cpc','cpp','cpm','inline_link_clicks',
         'actions','cost_per_action_type','action_values'
       ].join(','),
 
       ADSET_INSIGHTS: [
         'spend','impressions','clicks','reach',
-        'ctr','cpc',
+        'ctr','cpc','cpm','inline_link_clicks',
         'actions','cost_per_action_type','action_values'
       ].join(',')
     },
@@ -67,45 +67,48 @@ if (typeof CONFIG === 'undefined') {
       'purchase','lead','complete_registration','subscribe','contact'
     ],
 
-    /* ── Compliance thresholds ───────────────────────────────────
-       Two sets, picked per-entity by campaign/ad-set age:
-         • age ≤ PHASE1_DAYS  → THRESHOLDS_PHASE1 (looser, still learning)
-         • age >  PHASE1_DAYS  → THRESHOLDS       (final, mature target)
-       Both sets can be overridden live from a Google Sheet — see
-       THRESHOLDS_SHEET_URL below. */
+    /* ── Compliance thresholds ─────────────────────────────────────
+       Two sets baked here as a fallback. Both are normally OVERRIDDEN
+       at runtime by the Google Sheet (see SHEET_ID below):
+
+         • Phase 1 — entity age ≤ PHASE1_DAYS (looser, still learning)
+         • End Goal — entity age > PHASE1_DAYS (strict final benchmark)
+
+       Sheet parameter names → CONFIG threshold keys:
+         CAC                    → CPA_TARGET   (₹, lower is better)
+         ROAS                   → ROAS_TARGET  (multiple, higher is better)
+         CTR                    → CTR_MIN      (%, higher is better)
+         Conversion Rate        → CVR_MIN      (%, higher is better)
+         Budget Campaign Level  → DAILY_BUDGET_MIN (₹/day, higher is better)
+         Bounce Rate            → (GA4 — not currently evaluated) */
     PHASE1_DAYS: 30,
 
-    THRESHOLDS: {                /* FINAL — mature campaigns (> 30 days) */
-      ROAS_TARGET:     3.0,
-      CPA_TARGET:      25.0,
-      CTR_MIN:         1.0,
-      BUDGET_VARIANCE: 0.20
+    THRESHOLDS: {                /* END GOAL — mature campaigns (> 30 days) */
+      ROAS_TARGET:       3.0,
+      CPA_TARGET:        25.0,
+      CTR_MIN:           1.0,
+      CVR_MIN:           3.0,
+      DAILY_BUDGET_MIN:  2000
     },
     THRESHOLDS_PHASE1: {         /* PHASE 1 — first 30 days, looser */
-      ROAS_TARGET:     1.5,
-      CPA_TARGET:      40.0,
-      CTR_MIN:         0.7,
-      BUDGET_VARIANCE: 0.35
+      ROAS_TARGET:       1.5,
+      CPA_TARGET:        40.0,
+      CTR_MIN:           0.7,
+      CVR_MIN:           0.9,
+      DAILY_BUDGET_MIN:  1000
     },
 
-    /* ── Live thresholds from a Google Sheet (optional) ───────────
-       Paste a "Publish to web → CSV" URL here and the dashboard will
-       pull thresholds from it on each load (cached for the day),
-       falling back to the baked values above if the fetch fails.
+    /* ── Live config from a Google Sheet ──────────────────────────
+       The dashboard fetches two tabs on each load:
+         • "Threshold" — Parameter / Phase 1 Target / End Goal
+         • "Setup"     — KPIs / Target  (drives the Setup-tab rules)
+       It uses the gviz CSV endpoint, which works on any sheet shared
+       with "Anyone with the link" (no publish-to-web required).
+       Sheet must be readable by the public.
 
-       Sheet format — one header row, then one row per metric:
-         Metric,Phase1,Final
-         ROAS_TARGET,1.5,3.0
-         CPA_TARGET,40,25
-         CTR_MIN,0.7,1.0
-         BUDGET_VARIANCE,0.35,0.20
-         PHASE1_DAYS,30,30
-       (PHASE1_DAYS row optional; if present, its Final column wins.)
-
-       To publish: File → Share → Publish to web → choose the sheet →
-       CSV → copy the link. It looks like:
-       https://docs.google.com/spreadsheets/d/e/XXXX/pub?gid=0&single=true&output=csv */
-    THRESHOLDS_SHEET_URL: '',
+       Sheet ID is the long string in the sheet URL:
+       https://docs.google.com/spreadsheets/d/[THIS_PART]/edit  */
+    SHEET_ID: '1MEpQjS_cIs3qGDBlBZWBorpwyHgKFbtenA3wIHxnDbY',
 
     /* ── UI defaults ─────────────────────────────────────────────── */
     UI: {

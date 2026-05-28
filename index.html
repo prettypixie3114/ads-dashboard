@@ -126,8 +126,33 @@
     </button>
   </div>
 
-  <!-- ── KPI Cards (Performance view only) ── -->
-  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-3">
+  <!-- ── KPI Cards (Performance view only). Order requested by the team:
+       Impressions → Clicks (All) → CTR → Link Clicks → CPM, plus the
+       core money KPIs (Spend, Purchases Conv. Value, Conversions, ROAS).
+       GA4 metrics (Sessions, Engaged Sessions, Engagement Rate, Bounce
+       Rate) are intentionally NOT shown here — they live in GA4, not
+       in Meta, and need a separate integration before they can render. -->
+  <div id="kpiRow" class="hidden grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-9 gap-3">
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
+      <div id="kpiImpressions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Meta 'clicks' — all clicks anywhere on the ad (link, profile, like, etc.)">Clicks (All)</div>
+      <div id="kpiClicks" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">CTR</div>
+      <div id="kpiCTR" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Meta 'inline_link_clicks' — clicks on the link only (excludes profile / like / etc.)">Link Clicks</div>
+      <div id="kpiLinkClicks" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Cost per Mille — ad spend per 1,000 impressions">CPM</div>
+      <div id="kpiCPM" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+    </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Total Spend</div>
       <div id="kpiSpend" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
@@ -135,22 +160,6 @@
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Total purchase conversion value (sum of action_values for purchase, lead, complete_registration, subscribe, contact). Matches Meta Ads Manager's 'Purchases conversion value' field exactly.">Purchases Conv. Value</div>
       <div id="kpiPurchaseValue" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
-    </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Impressions</div>
-      <div id="kpiImpressions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
-    </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Clicks</div>
-      <div id="kpiClicks" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
-    </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Avg CTR</div>
-      <div id="kpiCTR" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
-    </div>
-    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Avg CPC</div>
-      <div id="kpiCPC" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Conversions</div>
@@ -389,6 +398,7 @@ const APP = {
   admin:              false,     // true when URL has #admin — reveals ⚙ + credential form
   adsetsLoading:      false,     // true while ad sets are still in-flight on cold load
   thresholdsSource:   'defaults',// 'sheet' once a Google Sheet override loads
+  setupRules:         [],        // [{kpi, target}, …] parsed from Setup sheet
   deliveryCollapsed:  {}         // { active|learning|inactive|completed: true } when collapsed
 };
 
@@ -743,47 +753,125 @@ function dualTarget(key, fmt) {
   return (p1 === fn) ? fmt(fn) : `${fmt(p1)} → ${fmt(fn)}`;
 }
 
-/* ── Live thresholds from a published Google Sheet (optional) ────
-   Fetches the CSV on first load of the day, parses rows of
-   Metric,Phase1,Final and overrides CONFIG.THRESHOLDS[_PHASE1].
-   Silent no-op if no URL set or the fetch/parse fails — baked
-   defaults remain in force. */
-async function loadThresholdSheet() {
-  const url = CONFIG.THRESHOLDS_SHEET_URL;
-  if (!url) return;
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`sheet HTTP ${res.status}`);
-    const csv = await res.text();
-    const rows = csv.trim().split(/\r?\n/).map(line =>
-      line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-    );
-    if (rows.length < 2) return;
-    /* header → column indexes (case-insensitive) */
-    const head = rows[0].map(h => h.toLowerCase());
-    const iMetric = head.findIndex(h => h.includes('metric'));
-    const iP1     = head.findIndex(h => h.includes('phase'));
-    const iFinal  = head.findIndex(h => h.includes('final'));
-    if (iMetric < 0 || iFinal < 0) return;
-
-    const known = ['ROAS_TARGET','CPA_TARGET','CTR_MIN','BUDGET_VARIANCE'];
-    CONFIG.THRESHOLDS_PHASE1 = CONFIG.THRESHOLDS_PHASE1 || {};
-    rows.slice(1).forEach(r => {
-      const key = (r[iMetric] || '').toUpperCase();
-      const finalV = parseFloat(r[iFinal]);
-      const p1V    = iP1 >= 0 ? parseFloat(r[iP1]) : finalV;
-      if (key === 'PHASE1_DAYS') {
-        if (!isNaN(finalV)) CONFIG.PHASE1_DAYS = finalV;
-        return;
+/* ── RFC-4180-style CSV parser ─────────────────────────────────
+   Handles quoted cells with embedded commas AND newlines (e.g. our
+   Setup sheet's Location Included row carries 200+ cities separated
+   by line breaks inside a single quoted cell). Returns an array of
+   arrays of strings. */
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (ch === '"')                  { inQuotes = false; }
+      else                                   { cell += ch; }
+    } else {
+      if      (ch === '"')             { inQuotes = true; }
+      else if (ch === ',')             { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i+1] === '\n') i++;
+        row.push(cell); cell = '';
+        if (row.some(c => c.length)) rows.push(row);
+        row = [];
       }
-      if (!known.includes(key)) return;
-      if (!isNaN(finalV)) CONFIG.THRESHOLDS[key]        = finalV;
-      if (!isNaN(p1V))     CONFIG.THRESHOLDS_PHASE1[key] = p1V;
-    });
+      else                              { cell += ch; }
+    }
+  }
+  if (cell.length || row.length) {
+    row.push(cell);
+    if (row.some(c => c.length)) rows.push(row);
+  }
+  return rows;
+}
+
+/* Map sheet "Parameter" names → CONFIG threshold keys. New aliases
+   can be added here without touching the sheet or the loader. */
+const THRESHOLD_KEY_MAP = {
+  'CAC':                   'CPA_TARGET',
+  'CPA':                   'CPA_TARGET',
+  'ROAS':                  'ROAS_TARGET',
+  'CTR':                   'CTR_MIN',
+  'CONVERSION RATE':       'CVR_MIN',
+  'CVR':                   'CVR_MIN',
+  'BUDGET CAMPAIGN LEVEL': 'DAILY_BUDGET_MIN',
+  'DAILY BUDGET':          'DAILY_BUDGET_MIN'
+  /* 'BOUNCE RATE'         → GA4-only, no Meta source, intentionally unmapped */
+};
+const THRESHOLDS_NOT_AVAILABLE = ['BOUNCE RATE','SESSIONS','ENGAGED SESSIONS','ENGAGEMENT RATE'];
+
+/* Parse a threshold cell that may be a raw number ("1200"), a
+   percentage ("8%" → 8), a multiplier ("2X" → 2), or a range
+   (">55-60" → 55, taking the lower bound). Returns NaN if unparseable. */
+function parseThresholdValue(s) {
+  if (s == null) return NaN;
+  const txt = String(s).trim();
+  if (!txt) return NaN;
+  /* Strip leading comparators and trailing units; take the first number. */
+  const m = txt.match(/-?\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : NaN;
+}
+
+/* ── Live thresholds + setup rules from Google Sheet ────────────
+   Pulls two tabs (Threshold + Setup) via gviz, which works on any
+   sheet shared "Anyone with the link" — no publish-to-web step
+   needed. Silently falls back to baked defaults on any failure. */
+async function loadThresholdSheet() {
+  const id = CONFIG.SHEET_ID;
+  if (!id) return;
+  const gviz = name => `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+  try {
+    const [thrRes, setRes] = await Promise.all([
+      fetch(gviz('Threshold'), { cache: 'no-store' }),
+      fetch(gviz('Setup'),     { cache: 'no-store' })
+    ]);
+
+    /* ---- Threshold tab ---- */
+    if (thrRes.ok) {
+      const rows = parseCSV(await thrRes.text());
+      if (rows.length >= 2) {
+        const head = rows[0].map(h => (h || '').toLowerCase());
+        const iName  = head.findIndex(h => h.includes('parameter') || h.includes('metric'));
+        const iP1    = head.findIndex(h => h.includes('phase'));
+        const iGoal  = head.findIndex(h => h.includes('end') || h.includes('final') || h.includes('goal'));
+        CONFIG.THRESHOLDS_PHASE1 = CONFIG.THRESHOLDS_PHASE1 || {};
+        rows.slice(1).forEach(r => {
+          const raw  = (r[iName] || '').trim().toUpperCase();
+          const key  = THRESHOLD_KEY_MAP[raw];
+          if (!key) return;
+          const p1V  = parseThresholdValue(r[iP1]);
+          const gV   = parseThresholdValue(r[iGoal]);
+          if (!isNaN(gV))  CONFIG.THRESHOLDS[key]        = gV;
+          if (!isNaN(p1V)) CONFIG.THRESHOLDS_PHASE1[key] = p1V;
+        });
+      }
+    }
+
+    /* ---- Setup tab → dynamic rules ---- */
+    if (setRes.ok) {
+      const rows = parseCSV(await setRes.text());
+      if (rows.length >= 2) {
+        const head = rows[0].map(h => (h || '').toLowerCase());
+        const iKpi    = head.findIndex(h => h.includes('kpi') || h.includes('parameter'));
+        const iTarget = head.findIndex(h => h.includes('target'));
+        APP.setupRules = rows.slice(1).map(r => ({
+          kpi:    (r[iKpi]    || '').trim(),
+          target: (r[iTarget] || '').trim()
+        })).filter(r => r.kpi);
+      }
+    }
+
     APP.thresholdsSource = 'sheet';
   } catch (e) {
-    console.warn('Threshold sheet load failed, using baked defaults:', e.message);
+    console.warn('Sheet load failed, using baked defaults:', e.message);
     APP.thresholdsSource = 'defaults';
+  } finally {
+    /* Rebuild SETUP_METRICS regardless — if APP.setupRules is empty
+       (sheet down) it falls back to FALLBACK_SETUP_METRICS. */
+    rebuildSetupMetrics();
   }
 }
 
@@ -859,6 +947,42 @@ const PERF_METRICS = [
     }
   },
   {
+    id: 'cvr', label: 'Conversion Rate',
+    target: (item) => item
+      ? `≥ ${thresholdsFor(item).CVR_MIN || 0}%`
+      : dualTarget('CVR_MIN', v => `≥ ${v}%`),
+    appliesTo: ['campaign','adset'],
+    evaluate: (item, ins) => {
+      const clk  = parseInt(ins?.clicks || 0, 10);
+      const conv = parseConversions(ins?.actions);
+      if (!clk) return 'na';
+      const cvr = conv / clk * 100;
+      const min = thresholdsFor(item).CVR_MIN || 0;
+      return cvr >= min ? 'pass' : 'fail';
+    },
+    actual: (item, ins) => {
+      const clk  = parseInt(ins?.clicks || 0, 10);
+      const conv = parseConversions(ins?.actions);
+      return clk ? `${(conv / clk * 100).toFixed(2)}%` : '—';
+    }
+  },
+  {
+    id: 'budget_level', label: 'Budget (Campaign Level)',
+    target: (item) => item
+      ? `≥ ₹${thresholdsFor(item).DAILY_BUDGET_MIN || 0}/day`
+      : dualTarget('DAILY_BUDGET_MIN', v => `≥ ₹${v}/day`),
+    appliesTo: ['campaign','adset'],
+    evaluate: (item) => {
+      const daily = (item.daily_budget || 0) / 100;  /* Meta returns cents */
+      if (!daily) return 'na';
+      return daily >= (thresholdsFor(item).DAILY_BUDGET_MIN || 0) ? 'pass' : 'fail';
+    },
+    actual: (item) => {
+      const daily = (item.daily_budget || 0) / 100;
+      return daily ? `₹${daily.toLocaleString('en-IN')}/day` : '—';
+    }
+  },
+  {
     id: 'conv', label: 'Conversions Generated',
     target: () => `> 0 when spend > 0`,
     appliesTo: ['campaign','adset'],
@@ -871,9 +995,252 @@ const PERF_METRICS = [
   }
 ];
 
-/* The 5 core Setup KPIs the executive view tracks. Live on ad sets;
-   campaign Setup compliance is the rollup of its ad sets. */
-const SETUP_METRICS = [
+/* ── Achievement tier helper ────────────────────────────────────
+   For each metric where we have both a Phase 1 and an End Goal
+   threshold, classify the entity's actual value into one of three
+   tiers regardless of the entity's age:
+     • 'end_goal' — actual is at or beyond End Goal
+     • 'phase1'   — actual is at or beyond Phase 1 (but short of End Goal)
+     • 'below'    — actual is short of even Phase 1
+     • 'na'       — no actual data
+   `direction` is 'higher' (CTR, ROAS, CVR, budget) or 'lower' (CPA). */
+function achievementTier(actual, key, direction) {
+  if (actual === null || actual === undefined || isNaN(actual)) return 'na';
+  const goal = CONFIG.THRESHOLDS?.[key];
+  const p1   = (CONFIG.THRESHOLDS_PHASE1 || {})[key];
+  if (goal === undefined && p1 === undefined) return 'na';
+  if (direction === 'lower') {
+    if (goal !== undefined && actual <= goal) return 'end_goal';
+    if (p1   !== undefined && actual <= p1)   return 'phase1';
+    return 'below';
+  }
+  /* higher is better (default) */
+  if (goal !== undefined && actual >= goal) return 'end_goal';
+  if (p1   !== undefined && actual >= p1)   return 'phase1';
+  return 'below';
+}
+
+/* Map PERF_METRIC id → {key, direction} for achievementTier lookups. */
+const METRIC_TIER_MAP = {
+  ctr:          { key: 'CTR_MIN',          direction: 'higher' },
+  cpa:          { key: 'CPA_TARGET',       direction: 'lower'  },
+  roas:         { key: 'ROAS_TARGET',      direction: 'higher' },
+  cvr:          { key: 'CVR_MIN',          direction: 'higher' },
+  budget_level: { key: 'DAILY_BUDGET_MIN', direction: 'higher' }
+};
+
+/* Numeric actual extractor per metric — for achievementTier(). */
+function metricActualNumber(metricId, item, ins) {
+  switch (metricId) {
+    case 'ctr':          return parseFloat(ins?.ctr || 0);
+    case 'cpa':          return parseCostPerConv(ins?.cost_per_action_type);
+    case 'roas': {
+      const spend = parseFloat(ins?.spend || 0);
+      const rev   = _revenue(ins);
+      return (spend === 0 || rev === 0) ? null : rev / spend;
+    }
+    case 'cvr': {
+      const clk  = parseInt(ins?.clicks || 0, 10);
+      const conv = parseConversions(ins?.actions);
+      return clk ? conv / clk * 100 : null;
+    }
+    case 'budget_level': {
+      const daily = (item.daily_budget || 0) / 100;
+      return daily || null;
+    }
+    default: return null;
+  }
+}
+
+/* ── Setup KPIs — dynamic from Google Sheet ─────────────────────
+   The mutable SETUP_METRICS array is rebuilt from APP.setupRules
+   (parsed from the Setup tab) whenever the sheet loads. If the
+   sheet is unreachable, FALLBACK_SETUP_METRICS below provides the
+   original five hardcoded rules so the dashboard keeps working.
+   Each handler in SETUP_HANDLERS validates against a sheet-provided
+   target value; adding a new sheet row with a known KPI name (e.g.
+   "Placement") makes it appear in the matrix automatically. */
+function normalizeKpiName(s) {
+  return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+const SETUP_HANDLERS = {
+  age: {
+    evaluate(item, target) {
+      const t = item.targeting || {};
+      const m = String(target || '').match(/(\d+)\s*[-–to]+\s*(\d+)/);
+      if (!m) {
+        /* No explicit range in sheet → fall back to "not the 18-65 default". */
+        return (!t.age_min || t.age_min === 18) && (!t.age_max || t.age_max === 65) ? 'fail' : 'pass';
+      }
+      return (t.age_min === +m[1] && t.age_max === +m[2]) ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const t = item.targeting || {};
+      return `${t.age_min || 18} - ${t.age_max || 65}`;
+    }
+  },
+  gender: {
+    evaluate(item, target) {
+      const g = item.targeting?.genders;
+      const want = String(target || '').toLowerCase().trim();
+      if (!want || want === 'all') return (!g || g.length === 0 || g.length === 2) ? 'pass' : 'fail';
+      const wantNum = (want === 'male' || want === 'men') ? 1
+                    : (want === 'female' || want === 'women') ? 2 : null;
+      if (wantNum === null) return 'fail';
+      return (g && g.length === 1 && g[0] === wantNum) ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const g = item.targeting?.genders;
+      if (!g || g.length === 0 || g.length === 2) return 'All (default)';
+      return g[0] === 1 ? 'Men' : 'Women';
+    }
+  },
+  location_included: {
+    /* Pass when (a) no excluded geo locations exist AND (b) every
+       targeted location is in the sheet's allow-list. */
+    evaluate(item, target) {
+      const t = item.targeting || {};
+      const exc = _flattenGeo(t.excluded_geo_locations);
+      if (exc.length > 0) return 'fail';  // any exclusion → fail per spec
+      const allowed = new Set(
+        String(target || '').split(/[\n,]/)
+          .map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      if (allowed.size === 0) return 'na';
+      const targeted = _flattenGeo(t.geo_locations).map(n =>
+        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      if (targeted.length === 0) return 'fail';
+      return targeted.every(n => allowed.has(n)) ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      const inc = _flattenGeo(item.targeting?.geo_locations);
+      const incStr = inc.length ? inc.slice(0,3).join(', ') + (inc.length>3 ? ` +${inc.length-3}` : '') : '—';
+      return exc.length ? `${incStr} · ⚠ Excl ${exc.length}` : incStr;
+    },
+    details(item) {
+      const inc = _flattenGeo(item.targeting?.geo_locations);
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      const out = {};
+      if (inc.length) out['Included locations'] = inc;
+      if (exc.length) out['Excluded locations (auto-fails this KPI)'] = exc;
+      return Object.keys(out).length ? out : null;
+    }
+  },
+  location_excluded: {
+    /* Standalone "no exclusions" rule if the sheet wants it explicit. */
+    evaluate(item) {
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      return exc.length === 0 ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      return exc.length === 0 ? 'None' : `${exc.length} location${exc.length===1?'':'s'} excluded`;
+    },
+    details(item) {
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      return exc.length ? { 'Excluded locations': exc } : null;
+    }
+  },
+  interests: {
+    evaluate(item) {
+      const t = item.targeting || {};
+      const has = (t.interests?.length > 0) || (t.behaviors?.length > 0) ||
+                  (t.flexible_spec?.some(s => (s.interests?.length || s.behaviors?.length)));
+      return has ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const t = item.targeting || {};
+      const list = [];
+      if (t.interests) list.push(...t.interests.map(i => i.name));
+      if (t.behaviors) list.push(...t.behaviors.map(b => b.name));
+      (t.flexible_spec || []).forEach(s => {
+        if (s.interests) list.push(...s.interests.map(i => i.name));
+        if (s.behaviors) list.push(...s.behaviors.map(b => b.name));
+      });
+      return list.length ? `${list.length} interest${list.length===1?'':'s'}` : 'All demographics, interests and behaviours';
+    }
+  },
+  placement: {
+    evaluate(item, target) {
+      const pp = item.targeting?.publisher_platforms;
+      const want = String(target || '').toLowerCase().split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+      if (want.length === 0) return pp?.length ? 'pass' : 'fail';
+      if (!pp?.length) return 'fail';
+      return want.every(w => pp.map(p => p.toLowerCase()).includes(w)) ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const pp = item.targeting?.publisher_platforms;
+      return pp?.length ? pp.join(', ') : 'Auto (all placements)';
+    }
+  },
+  device: {
+    evaluate(item, target) {
+      const dp = item.targeting?.device_platforms;
+      const want = String(target || '').toLowerCase().split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+      if (want.length === 0) return dp?.length ? 'pass' : 'fail';
+      if (!dp?.length) return 'fail';
+      return want.every(w => dp.map(d => d.toLowerCase()).includes(w)) ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const dp = item.targeting?.device_platforms;
+      return dp?.length ? dp.join(', ') : 'All devices';
+    }
+  },
+  audience_type: {
+    evaluate(item) {
+      const t = item.targeting || {};
+      const has = (t.custom_audiences?.length > 0) ||
+                  (t.interests?.length > 0) || (t.behaviors?.length > 0) ||
+                  (t.flexible_spec?.length > 0);
+      return has ? 'pass' : 'fail';
+    },
+    actual(item) {
+      const t = item.targeting || {};
+      if (t.custom_audiences?.length) return `${t.custom_audiences.length} custom audience${t.custom_audiences.length===1?'':'s'}`;
+      if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length) return 'Detailed targeting';
+      return 'Broad only';
+    }
+  },
+  _unknown: {
+    evaluate() { return 'na'; },
+    actual(_item, target) { return target || '—'; }
+  }
+};
+
+/* Backward-compatible aliases — the sheet sometimes uses synonyms. */
+SETUP_HANDLERS['gender_'] = SETUP_HANDLERS.gender;
+
+let SETUP_METRICS = [];   /* populated by rebuildSetupMetrics() */
+
+function rebuildSetupMetrics() {
+  SETUP_METRICS.length = 0;
+  if (!APP.setupRules || APP.setupRules.length === 0) {
+    /* Sheet hasn't loaded (or returned no rules) — keep the original
+       five hardcoded checks so the dashboard still works offline. */
+    SETUP_METRICS.push(...FALLBACK_SETUP_METRICS);
+    return;
+  }
+  APP.setupRules.forEach((rule, idx) => {
+    const key = normalizeKpiName(rule.kpi);
+    const handler = SETUP_HANDLERS[key] || SETUP_HANDLERS._unknown;
+    const isUnknown = handler === SETUP_HANDLERS._unknown;
+    SETUP_METRICS.push({
+      id:        'setup_' + key + '_' + idx,
+      label:     rule.kpi + (isUnknown ? ' (rule pending)' : ''),
+      target:    () => rule.target || '—',
+      appliesTo: ['adset'],
+      evaluate:  (item) => handler.evaluate(item, rule.target),
+      actual:    (item) => handler.actual ? handler.actual(item, rule.target) : '—',
+      details:   handler.details ? (item) => handler.details(item, rule.target) : undefined
+    });
+  });
+}
+
+/* Original five Setup checks kept verbatim as the fallback when the
+   Setup sheet is unreachable. Sheet-driven mode replaces these. */
+const FALLBACK_SETUP_METRICS = [
   {
     id: 'age', label: 'Age Defined',
     target: () => 'Specific age range (not 18–65 default)',
@@ -1395,27 +1762,27 @@ function renderHierarchy() {
 /*  cycle, plus how long it's been running (aging).               */
 /* ══════════════════════════════════════════════════════════════ */
 
-/* Bucket a campaign into exactly one delivery state. Priority order
-   matters: a campaign that has ended is "Completed" even if its
-   configured status is still ACTIVE. */
+/* Bucket a campaign into exactly one delivery state. Priority order:
+     1. Inactive   — effective_status ≠ ACTIVE (paused/archived/…)
+     2. Learning   — ACTIVE + ≥1 child ad set still in Meta's learning phase
+     3. Completed  — ACTIVE + ALL child ad sets have passed learning
+                     (learning_stage_info.status ≠ LEARNING)
+     4. Active     — ACTIVE but learning_stage_info wasn't returned
+                     for any child ad set, so we can't tell if it has
+                     graduated yet. Safe fallback. */
 function deliveryBucket(campaign) {
-  const es   = campaign.effective_status || campaign.status;
-  const stop = campaign.stop_time ? new Date(campaign.stop_time) : null;
-
-  /* Completed — its scheduled run window has ended. */
-  if (stop && !isNaN(stop) && stop.getTime() < Date.now()) return 'completed';
-
-  /* Inactive — paused, archived, campaign/adset paused, etc. */
+  const es = campaign.effective_status || campaign.status;
   if (es !== 'ACTIVE') return 'inactive';
 
-  /* Active + still learning — any child ad set in Meta's learning phase. */
-  const learning = APP.adsets.some(a =>
-    a.campaign_id === campaign.id &&
-    a.learning_stage_info && a.learning_stage_info.status === 'LEARNING'
-  );
-  if (learning) return 'learning';
+  const children = APP.adsets.filter(a => a.campaign_id === campaign.id);
+  const withInfo = children.filter(a => a.learning_stage_info && a.learning_stage_info.status);
+  if (withInfo.length === 0) return 'active';   /* can't tell — fall back */
 
-  return 'active';
+  const anyLearning = withInfo.some(a => a.learning_stage_info.status === 'LEARNING');
+  if (anyLearning) return 'learning';
+
+  /* Every child ad set with learning info has graduated. */
+  return 'completed';
 }
 
 /* Absolute launch date, e.g. "Launched 09-Apr-26" — matches the
@@ -1460,10 +1827,10 @@ function renderDelivery() {
   camps.forEach(c => buckets[deliveryBucket(c)].push(c));
 
   const META = {
-    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running and out of learning' },
-    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Optimising — ad sets in learning phase' },
+    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running — learning state unknown' },
+    learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Active + ad sets still in Meta learning phase' },
     inactive:  { label: 'Inactive',  dot: 'bg-slate-400',   pill: 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/40',        desc: 'Paused, archived, or campaign-paused' },
-    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: 'Scheduled end date has passed' }
+    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: 'Active + all ad sets graduated from learning' }
   };
   const ORDER = ['active','learning','inactive','completed'];
 
@@ -1562,32 +1929,29 @@ function renderKPIs() {
     ? APP.campaigns.map(x => x.id)
     : APP.campaigns.filter(isLive).map(x => x.id);
   const all = visibleIds.map(id => APP.insights[id]).filter(Boolean);
-  const totalSpend = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
-  const totalImpr  = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
-  const totalClk   = all.reduce((s,i) => s + parseInt(i.clicks||0,10), 0);
-  const avgCTR     = totalImpr  > 0 ? totalClk / totalImpr * 100 : 0;
-  const avgCPC     = totalClk   > 0 ? totalSpend / totalClk : 0;
-  const totalConv  = all.reduce((s,i) => s + parseConversions(i.actions), 0);
-  const totalRev   = all.reduce((s,i) => s + _revenue(i), 0);
-  const netRev     = totalRev - totalSpend;
-  const roas       = totalSpend > 0 ? totalRev / totalSpend : null;
+  const totalSpend   = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
+  const totalImpr    = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
+  const totalClk     = all.reduce((s,i) => s + parseInt(i.clicks||0,10), 0);
+  const totalLinkClk = all.reduce((s,i) => s + parseInt(i.inline_link_clicks||0,10), 0);
+  const avgCTR       = totalImpr > 0 ? totalClk / totalImpr * 100 : 0;
+  const cpm          = totalImpr > 0 ? totalSpend / totalImpr * 1000 : 0;  /* derived; matches Meta CPM */
+  const totalConv    = all.reduce((s,i) => s + parseConversions(i.actions), 0);
+  const totalRev     = all.reduce((s,i) => s + _revenue(i), 0);
+  const roas         = totalSpend > 0 ? totalRev / totalSpend : null;
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
   const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
-  set('kpiSpend',       `₹${totalSpend.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
-  set('kpiImpressions', totalImpr.toLocaleString('en-IN'));
-  set('kpiClicks',      totalClk.toLocaleString('en-IN'));
-  set('kpiCTR',         `${avgCTR.toFixed(2)}%`);
-  set('kpiCPC',         `₹${avgCPC.toFixed(2)}`);
-  set('kpiConversions', totalConv.toLocaleString('en-IN'));
-  /* Purchases Conv. Value: matches Meta Ads Manager's "Purchases
-     conversion value" column exactly. Raw gross revenue from purchase
-     action_values, not netted against spend. */
-  set('kpiPurchaseValue',
-    totalRev > 0
-      ? `₹${totalRev.toLocaleString('en-IN',{maximumFractionDigits:0})}`
-      : muted);
-  set('kpiROAS', (roas !== null && totalRev > 0) ? `${roas.toFixed(2)}×` : muted);
+  /* Order: Impressions, Clicks (All), CTR, Link Clicks, CPM,
+     Spend, Purchases Conv. Value, Conversions, ROAS. */
+  set('kpiImpressions',   totalImpr.toLocaleString('en-IN'));
+  set('kpiClicks',        totalClk.toLocaleString('en-IN'));
+  set('kpiCTR',           `${avgCTR.toFixed(2)}%`);
+  set('kpiLinkClicks',    totalLinkClk > 0 ? totalLinkClk.toLocaleString('en-IN') : muted);
+  set('kpiCPM',           totalImpr > 0 ? `₹${cpm.toFixed(2)}` : muted);
+  set('kpiSpend',         `₹${totalSpend.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
+  set('kpiPurchaseValue', totalRev > 0 ? `₹${totalRev.toLocaleString('en-IN',{maximumFractionDigits:0})}` : muted);
+  set('kpiConversions',   totalConv.toLocaleString('en-IN'));
+  set('kpiROAS',          (roas !== null && totalRev > 0) ? `${roas.toFixed(2)}×` : muted);
 }
 
 
@@ -1721,7 +2085,7 @@ async function loadInsights() {
   if (!APP.since || !APP.until) return;
 
   /* KPI skeleton */
-  ['kpiSpend','kpiImpressions','kpiClicks','kpiCTR','kpiCPC','kpiConversions','kpiPurchaseValue','kpiROAS'].forEach(id => {
+  ['kpiImpressions','kpiClicks','kpiCTR','kpiLinkClicks','kpiCPM','kpiSpend','kpiPurchaseValue','kpiConversions','kpiROAS'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<span class="skeleton inline-block w-16 h-5 rounded"></span>';
   });
@@ -2444,16 +2808,39 @@ function openAnalysis(id) {
     : '<span class="text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">Final</span>';
   const ageD = entityAgeDays(item);
   const scoreRows = PERF_METRICS.map(m => {
-    const r = m.evaluate(item, ins);
     const actual = m.actual ? m.actual(item, ins) : '—';
-    const badge = r === 'pass'
-      ? '<span class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded">✓ Pass</span>'
-      : r === 'fail'
-      ? '<span class="text-[10px] font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded">✗ Fail</span>'
-      : '<span class="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">No data</span>';
-    const actCls = r === 'pass' ? 'text-emerald-600 dark:text-emerald-400'
-                 : r === 'fail' ? 'text-rose-600 dark:text-rose-400'
-                 : 'text-slate-400 dark:text-slate-500';
+    /* If this metric has both Phase 1 and End Goal thresholds, classify
+       the actual into a three-tier achievement badge. Otherwise fall back
+       to the binary pass/fail evaluation. */
+    let badge, actCls;
+    const tierInfo = METRIC_TIER_MAP[m.id];
+    if (tierInfo) {
+      const num = metricActualNumber(m.id, item, ins);
+      const tier = achievementTier(num, tierInfo.key, tierInfo.direction);
+      if (tier === 'end_goal') {
+        badge  = '<span class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">✓ End Goal Achieved</span>';
+        actCls = 'text-emerald-600 dark:text-emerald-400';
+      } else if (tier === 'phase1') {
+        badge  = '<span class="text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">◐ Phase 1 Achieved</span>';
+        actCls = 'text-amber-600 dark:text-amber-400';
+      } else if (tier === 'below') {
+        badge  = '<span class="text-[10px] font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">✗ Below Phase 1</span>';
+        actCls = 'text-rose-600 dark:text-rose-400';
+      } else {
+        badge  = '<span class="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">No data</span>';
+        actCls = 'text-slate-400 dark:text-slate-500';
+      }
+    } else {
+      const r = m.evaluate(item, ins);
+      badge = r === 'pass'
+        ? '<span class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">✓ Pass</span>'
+        : r === 'fail'
+        ? '<span class="text-[10px] font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">✗ Fail</span>'
+        : '<span class="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700/40 px-1.5 py-0.5 rounded">No data</span>';
+      actCls = r === 'pass' ? 'text-emerald-600 dark:text-emerald-400'
+             : r === 'fail' ? 'text-rose-600 dark:text-rose-400'
+             : 'text-slate-400 dark:text-slate-500';
+    }
     return `
       <tr class="border-b border-slate-200/40 dark:border-slate-700/30 last:border-0">
         <td class="py-2 pl-4 pr-2 text-xs font-medium text-slate-700 dark:text-slate-200">${m.label}</td>
@@ -2831,6 +3218,10 @@ function clearError() {
 function init() {
   /* Load persisted config from localStorage */
   initConfig();
+
+  /* Seed SETUP_METRICS with fallback so the first render isn't empty;
+     loadThresholdSheet() will rebuild from the sheet shortly after. */
+  rebuildSetupMetrics();
 
   /* Admin mode: only the URL fragment #admin (or a previous admin session
      in this tab) reveals the ⚙ gear + credential form. Visitors see only
