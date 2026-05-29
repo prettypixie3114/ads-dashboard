@@ -946,7 +946,11 @@ const PERF_METRICS = [
       if (!impr) return 'na';
       return parseFloat(ins.ctr || 0) >= thresholdsFor(item).CTR_MIN ? 'pass' : 'fail';
     },
-    actual: (item, ins) => `${parseFloat(ins?.ctr || 0).toFixed(2)}%`
+    actual: (item, ins) => `${parseFloat(ins?.ctr || 0).toFixed(2)}%`,
+    mismatchDetail: (item, ins) => {
+      const cur = parseFloat(ins?.ctr || 0);
+      return `Current ${cur.toFixed(2)}% (target ≥ ${thresholdsFor(item).CTR_MIN}%)`;
+    }
   },
   {
     id: 'cpa', label: 'Cost per Conversion',
@@ -963,6 +967,11 @@ const PERF_METRICS = [
     actual: (item, ins) => {
       const cpa = parseCostPerConv(ins?.cost_per_action_type);
       return cpa === null ? '—' : `₹${cpa.toFixed(2)}`;
+    },
+    mismatchDetail: (item, ins) => {
+      const cpa = parseCostPerConv(ins?.cost_per_action_type);
+      if (cpa === null) return 'No conversion data yet';
+      return `Current ₹${cpa.toFixed(2)} (target ≤ ₹${thresholdsFor(item).CPA_TARGET})`;
     }
   },
   {
@@ -981,6 +990,12 @@ const PERF_METRICS = [
       const spend = parseFloat(ins?.spend || 0);
       const rev   = _revenue(ins);
       return (rev === 0 || spend === 0) ? '—' : `${(rev / spend).toFixed(2)}x`;
+    },
+    mismatchDetail: (item, ins) => {
+      const spend = parseFloat(ins?.spend || 0);
+      const rev   = _revenue(ins);
+      if (rev === 0 || spend === 0) return 'No revenue or spend yet';
+      return `Current ${(rev / spend).toFixed(2)}× (target ≥ ${thresholdsFor(item).ROAS_TARGET}×) · ₹${rev.toFixed(0)} on ₹${spend.toFixed(0)} spend`;
     }
   },
   {
@@ -998,6 +1013,12 @@ const PERF_METRICS = [
       const p = _budgetPace(item, ins);
       if (!p) return '—';
       return `${p.variance >= 0 ? '+' : ''}${(p.variance*100).toFixed(0)}%`;
+    },
+    mismatchDetail: (item, ins) => {
+      const p = _budgetPace(item, ins);
+      if (!p) return 'No daily budget set';
+      const dir = p.variance > 0 ? 'overspent' : 'underspent';
+      return `Spend ₹${p.spend.toFixed(0)} vs planned ₹${p.expected.toFixed(0)} — ${dir} ${Math.abs(p.variance*100).toFixed(0)}%`;
     }
   },
   {
@@ -1018,6 +1039,13 @@ const PERF_METRICS = [
       const clk  = parseInt(ins?.clicks || 0, 10);
       const conv = parseConversions(ins?.actions);
       return clk ? `${(conv / clk * 100).toFixed(2)}%` : '—';
+    },
+    mismatchDetail: (item, ins) => {
+      const clk  = parseInt(ins?.clicks || 0, 10);
+      const conv = parseConversions(ins?.actions);
+      const min = thresholdsFor(item).CVR_MIN || 0;
+      if (!clk) return 'No clicks yet';
+      return `${conv}/${clk} = ${(conv / clk * 100).toFixed(2)}% (target ≥ ${min}%)`;
     }
   },
   {
@@ -1027,13 +1055,19 @@ const PERF_METRICS = [
       : dualTarget('DAILY_BUDGET_MIN', v => `≥ ₹${v}/day`),
     appliesTo: ['campaign','adset'],
     evaluate: (item) => {
-      const daily = (item.daily_budget || 0) / 100;  /* Meta returns cents */
+      const daily = (item.daily_budget || 0) / 100;
       if (!daily) return 'na';
       return daily >= (thresholdsFor(item).DAILY_BUDGET_MIN || 0) ? 'pass' : 'fail';
     },
     actual: (item) => {
       const daily = (item.daily_budget || 0) / 100;
       return daily ? `₹${daily.toLocaleString('en-IN')}/day` : '—';
+    },
+    mismatchDetail: (item) => {
+      const daily = (item.daily_budget || 0) / 100;
+      const min   = thresholdsFor(item).DAILY_BUDGET_MIN || 0;
+      if (!daily) return 'No daily budget set';
+      return `Set to ₹${daily.toLocaleString('en-IN')}/day (target ≥ ₹${min.toLocaleString('en-IN')}/day)`;
     }
   },
   {
@@ -1045,7 +1079,11 @@ const PERF_METRICS = [
       if (!spend) return 'na';
       return parseConversions(ins?.actions) > 0 ? 'pass' : 'fail';
     },
-    actual: (item, ins) => `${parseConversions(ins?.actions)}`
+    actual: (item, ins) => `${parseConversions(ins?.actions)}`,
+    mismatchDetail: (item, ins) => {
+      const spend = parseFloat(ins?.spend || 0);
+      return `0 conversions on ₹${spend.toFixed(0)} spend`;
+    }
   }
 ];
 
@@ -1118,13 +1156,20 @@ function normalizeKpiName(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
+/* Shared helper — short text-list preview for use inside mismatchDetail.
+   "Mumbai, Pune, Delhi +44 more"  /  "Mumbai, Pune"  /  "—" */
+function _listPreview(arr, n = 3) {
+  if (!arr || !arr.length) return '—';
+  const head = arr.slice(0, n).join(', ');
+  return arr.length <= n ? head : `${head} +${arr.length - n} more`;
+}
+
 const SETUP_HANDLERS = {
   age: {
     evaluate(item, target) {
       const t = item.targeting || {};
       const m = String(target || '').match(/(\d+)\s*[-–to]+\s*(\d+)/);
       if (!m) {
-        /* No explicit range in sheet → fall back to "not the 18-65 default". */
         return (!t.age_min || t.age_min === 18) && (!t.age_max || t.age_max === 65) ? 'fail' : 'pass';
       }
       return (t.age_min === +m[1] && t.age_max === +m[2]) ? 'pass' : 'fail';
@@ -1132,6 +1177,16 @@ const SETUP_HANDLERS = {
     actual(item) {
       const t = item.targeting || {};
       return `${t.age_min || 18} - ${t.age_max || 65}`;
+    },
+    /* Specific reason this ad set failed the Age check. */
+    mismatchDetail(item, target) {
+      const t = item.targeting || {};
+      const isDefault = (!t.age_min || t.age_min === 18) && (!t.age_max || t.age_max === 65);
+      const cur = `${t.age_min || 18}–${t.age_max || 65}`;
+      const want = target ? ` (target ${target})` : '';
+      return isDefault
+        ? `Default 18–65, no narrowing${want}`
+        : `Set to ${cur}${want}`;
     }
   },
   gender: {
@@ -1148,15 +1203,18 @@ const SETUP_HANDLERS = {
       const g = item.targeting?.genders;
       if (!g || g.length === 0 || g.length === 2) return 'All (default)';
       return g[0] === 1 ? 'Men' : 'Women';
+    },
+    mismatchDetail(item, target) {
+      const g = item.targeting?.genders;
+      const cur = (!g || g.length === 0 || g.length === 2) ? 'All genders' : (g[0] === 1 ? 'Men only' : 'Women only');
+      return target ? `Set to ${cur} (target ${target})` : `Set to ${cur}`;
     }
   },
   location_included: {
-    /* Pass when (a) no excluded geo locations exist AND (b) every
-       targeted location is in the sheet's allow-list. */
     evaluate(item, target) {
       const t = item.targeting || {};
       const exc = _flattenGeo(t.excluded_geo_locations);
-      if (exc.length > 0) return 'fail';  // any exclusion → fail per spec
+      if (exc.length > 0) return 'fail';
       const allowed = new Set(
         String(target || '').split(/[\n,]/)
           .map(s => s.trim().toLowerCase()).filter(Boolean)
@@ -1167,23 +1225,38 @@ const SETUP_HANDLERS = {
       if (targeted.length === 0) return 'fail';
       return targeted.every(n => allowed.has(n)) ? 'pass' : 'fail';
     },
-    /* Show first 3 city names so the team recognises locations at a
-       glance, plus the total count. Full list (200+ entries) opens
-       via the modal's "View N" expand link. Excluded count surfaces
-       with a warning marker since any exclusion auto-fails the KPI. */
     actual(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
       if (!inc.length && !exc.length) return '— no location';
       let incPart;
-      if (!inc.length) {
-        incPart = 'no inclusions';
-      } else {
+      if (!inc.length) incPart = 'no inclusions';
+      else {
         const preview = inc.slice(0, 3).join(', ');
         incPart = inc.length <= 3 ? preview : `${preview} +${inc.length - 3} more`;
       }
       const excPart = exc.length ? ` · ⚠ Excl ${exc.length}` : '';
       return incPart + excPart;
+    },
+    /* Surfaces the *exact* problem: the excluded cities (which auto-fail
+       the KPI), OR included cities that aren't on the sheet's allow-list,
+       OR "no location set". This is the headline of this whole feature. */
+    mismatchDetail(item, target) {
+      const t = item.targeting || {};
+      const exc = _flattenGeo(t.excluded_geo_locations);
+      if (exc.length) return `Excluded: ${_listPreview(exc)}`;
+
+      const targeted = _flattenGeo(t.geo_locations);
+      if (!targeted.length) return 'No location targeting set';
+
+      const allowed = new Set(
+        String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      if (allowed.size === 0) return `Targets: ${_listPreview(targeted)}`;
+      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const bad = targeted.filter((_, i) => !allowed.has(cleaned[i]));
+      if (bad.length) return `Not in allowed list: ${_listPreview(bad)}`;
+      return 'Mismatch';
     },
     details(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
@@ -1195,7 +1268,6 @@ const SETUP_HANDLERS = {
     }
   },
   location_excluded: {
-    /* Standalone "no exclusions" rule if the sheet wants it explicit. */
     evaluate(item) {
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
       return exc.length === 0 ? 'pass' : 'fail';
@@ -1203,6 +1275,10 @@ const SETUP_HANDLERS = {
     actual(item) {
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
       return exc.length === 0 ? 'None' : `${exc.length} location${exc.length===1?'':'s'} excluded`;
+    },
+    mismatchDetail(item) {
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      return exc.length ? `Excluded: ${_listPreview(exc)}` : 'Mismatch';
     },
     details(item) {
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
@@ -1226,6 +1302,9 @@ const SETUP_HANDLERS = {
         if (s.behaviors) list.push(...s.behaviors.map(b => b.name));
       });
       return list.length ? `${list.length} interest${list.length===1?'':'s'}` : 'All demographics, interests and behaviours';
+    },
+    mismatchDetail() {
+      return 'No interests or behaviours configured (broad targeting)';
     }
   },
   placement: {
@@ -1239,6 +1318,11 @@ const SETUP_HANDLERS = {
     actual(item) {
       const pp = item.targeting?.publisher_platforms;
       return pp?.length ? pp.join(', ') : 'Auto (all placements)';
+    },
+    mismatchDetail(item, target) {
+      const pp = item.targeting?.publisher_platforms;
+      const cur = pp?.length ? pp.join(', ') : 'Auto / all placements';
+      return target ? `Currently: ${cur} (target ${target})` : `Currently: ${cur}`;
     }
   },
   device: {
@@ -1252,6 +1336,11 @@ const SETUP_HANDLERS = {
     actual(item) {
       const dp = item.targeting?.device_platforms;
       return dp?.length ? dp.join(', ') : 'All devices';
+    },
+    mismatchDetail(item, target) {
+      const dp = item.targeting?.device_platforms;
+      const cur = dp?.length ? dp.join(', ') : 'All devices';
+      return target ? `Currently: ${cur} (target ${target})` : `Currently: ${cur}`;
     }
   },
   audience_type: {
@@ -1267,6 +1356,12 @@ const SETUP_HANDLERS = {
       if (t.custom_audiences?.length) return `${t.custom_audiences.length} custom audience${t.custom_audiences.length===1?'':'s'}`;
       if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length) return 'Detailed targeting';
       return 'Broad only';
+    },
+    mismatchDetail(item) {
+      const t = item.targeting || {};
+      const excCA = (t.excluded_custom_audiences || []).map(a => a.name || a.id);
+      if (excCA.length) return `Broad only · Excluded CA: ${_listPreview(excCA)}`;
+      return 'Broad only — no custom audience, lookalike, or detailed targeting';
     }
   },
   _unknown: {
@@ -1293,13 +1388,14 @@ function rebuildSetupMetrics() {
     const handler = SETUP_HANDLERS[key] || SETUP_HANDLERS._unknown;
     const isUnknown = handler === SETUP_HANDLERS._unknown;
     SETUP_METRICS.push({
-      id:        'setup_' + key + '_' + idx,
-      label:     rule.kpi + (isUnknown ? ' (rule pending)' : ''),
-      target:    () => rule.target || '—',
-      appliesTo: ['adset'],
-      evaluate:  (item) => handler.evaluate(item, rule.target),
-      actual:    (item) => handler.actual ? handler.actual(item, rule.target) : '—',
-      details:   handler.details ? (item) => handler.details(item, rule.target) : undefined
+      id:             'setup_' + key + '_' + idx,
+      label:          rule.kpi + (isUnknown ? ' (rule pending)' : ''),
+      target:         () => rule.target || '—',
+      appliesTo:      ['adset'],
+      evaluate:       (item) => handler.evaluate(item, rule.target),
+      actual:         (item) => handler.actual         ? handler.actual(item, rule.target)         : '—',
+      mismatchDetail: (item) => handler.mismatchDetail ? handler.mismatchDetail(item, rule.target) : '',
+      details:        handler.details ? (item) => handler.details(item, rule.target) : undefined
     });
   });
 }
@@ -1577,7 +1673,12 @@ function evalForRow(item, metric, type) {
 
 /* Each entity in the expanded cell shows its overall compliance %
    across all KPIs in the current tab. Bar colored by score. */
-function entityComplianceRow(item, type) {
+/* contextMetric + contextKind === 'fail' → row renders an extra
+   "Mismatch: …" line below the name showing the *specific* offending
+   value(s) for this entity on this KPI (e.g. "Excluded: Mumbai, Pune,
+   Delhi +44 more"). Metric defines this via mismatchDetail(item, ins).
+   Without those args, row renders the original compact layout. */
+function entityComplianceRow(item, type, contextMetric, contextKind) {
   const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
   const s = (type === 'campaign' && APP.view === 'setup')
     ? rolledUpScore(item, metrics)
@@ -1591,18 +1692,38 @@ function entityComplianceRow(item, type) {
                  : pct >= 80    ? 'text-emerald-600 dark:text-emerald-400'
                  : pct >= 50    ? 'text-amber-600 dark:text-amber-400'
                  :                'text-rose-600 dark:text-rose-400';
-  /* Tooltip text — explains what the % means + full entity name so the
-     user always knows which row is which even when the name is truncated. */
   const tabLabel = APP.view === 'performance' ? 'Performance' : 'Setup';
   const pctTip   = pct === null
     ? `${item.name}\nNo applicable KPIs for this entity yet`
     : `${item.name}\n${tabLabel} compliance: ${pct}% (${s.pass} of ${s.total} KPIs passing)`;
+
+  /* Mismatch detail — the specific offending value for THIS entity on
+     THIS KPI. Only renders inside a Non-Compliant cell expansion. */
+  let mismatchHtml = '';
+  if (contextMetric && contextKind === 'fail') {
+    let detail = '';
+    try {
+      if (contextMetric.mismatchDetail) {
+        detail = String(contextMetric.mismatchDetail(item, APP.insights[item.id]) || '').trim();
+      } else if (contextMetric.actual) {
+        detail = String(contextMetric.actual(item, APP.insights[item.id]) || '').trim();
+      }
+      detail = detail.replace(/<[^>]*>/g, '');  /* strip any HTML */
+    } catch (_) { /* leave empty */ }
+    if (detail) {
+      mismatchHtml = `
+        <div class="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5 leading-snug w-full sm:basis-full sm:order-last">
+          <span class="font-semibold">⚠ </span>${escH(detail)}
+        </div>`;
+    }
+  }
+
   return `
     <button type="button"
             onclick="event.stopPropagation(); openAnalysis('${item.id}')"
             title="${escH(pctTip)}"
             aria-label="${escH(pctTip)} — click to open Planned vs Actual"
-            class="w-full text-left flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 py-2 sm:py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 transition group min-h-[44px] sm:min-h-0">
+            class="w-full text-left flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-1 sm:gap-x-3 sm:gap-y-0 py-2 sm:py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 transition group min-h-[44px] sm:min-h-0">
       <div class="flex items-center gap-2 sm:contents min-w-0 sm:min-w-0">
         <span class="text-xs font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white" title="${escH(item.name)}">${escH(item.name)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 sm:hidden transition" aria-hidden="true">›</span>
@@ -1616,6 +1737,7 @@ function entityComplianceRow(item, type) {
         </span>
       </div>
       <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 hidden sm:inline transition" aria-hidden="true">›</span>
+      ${mismatchHtml}
     </button>`;
 }
 
@@ -1672,11 +1794,11 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
   const entityListPanel = (rows, kind, m, exp) => exp
     ? `<div id="panel_${sectionKey}_${m.id}_${kind}" role="region" aria-label="${kind === 'pass' ? 'Compliant' : 'Non-compliant'} ${m.label}" class="mt-3 space-y-0.5 max-h-72 overflow-y-auto pr-1">
          <div class="flex items-center gap-3 px-2 pb-1 text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold border-b border-slate-200/40 dark:border-slate-700/30">
-           <span class="flex-1">Entity</span>
+           <span class="flex-1">Entity${kind === 'fail' ? ' · mismatch detail below name' : ''}</span>
            <span class="w-20 sm:w-[160px]" title="Per-entity compliance score: KPIs passing ÷ KPIs applicable">${tabLabel} %</span>
            <span class="w-3" aria-hidden="true"></span>
          </div>
-         ${rows.map(it => entityComplianceRow(it, type)).join('')}
+         ${rows.map(it => entityComplianceRow(it, type, m, kind)).join('')}
        </div>`
     : '';
 
