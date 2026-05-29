@@ -417,8 +417,39 @@ const APP = {
   thresholdsSource:   'defaults',// 'sheet' once a Google Sheet override loads
   setupRules:         [],        // [{kpi, target}, …] parsed from Setup sheet
   deliveryCollapsed:  {},        // { active|learning|inactive|completed: true } when collapsed
-  ga4:                { totals: null, byCampaign: {}, error: null, loading: false }
+  ga4:                { totals: null, byCampaign: {}, error: null, loading: false },
+  setupOverrides:     {}         // { 'setup_age_0': '22-55', … } — local per-rule target overrides
 };
+
+/* Load any persisted Target-Goal overrides from localStorage so they
+   survive page reloads. Admin-only edits saved here take precedence
+   over the Google Sheet's target until explicitly cleared. */
+try {
+  const _ov = localStorage.getItem('metaAdsSetupOverrides');
+  if (_ov) APP.setupOverrides = JSON.parse(_ov) || {};
+} catch (_) { /* corrupt or unavailable — start empty */ }
+function _persistOverrides() {
+  try { localStorage.setItem('metaAdsSetupOverrides', JSON.stringify(APP.setupOverrides)); }
+  catch (_) {}
+}
+function setSetupOverride(ruleId, value) {
+  if (value && String(value).trim()) APP.setupOverrides[ruleId] = String(value).trim();
+  else                                delete APP.setupOverrides[ruleId];
+  _persistOverrides();
+  rebuildSetupMetrics();
+  renderAll();
+}
+/* Inline edit handler called from the matrix pencil button. */
+function editSetupTarget(ruleId, currentLabel) {
+  const next = prompt(
+    `New Target Goal for "${currentLabel}":\n\n` +
+    `Leave empty to clear the override and fall back to the Google Sheet value.\n` +
+    `Saved locally in this browser only — not pushed to the sheet.`,
+    APP.setupOverrides[ruleId] || ''
+  );
+  if (next === null) return;          /* cancelled */
+  setSetupOverride(ruleId, next);
+}
 
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -1387,15 +1418,22 @@ function rebuildSetupMetrics() {
     const key = normalizeKpiName(rule.kpi);
     const handler = SETUP_HANDLERS[key] || SETUP_HANDLERS._unknown;
     const isUnknown = handler === SETUP_HANDLERS._unknown;
+    const ruleId   = 'setup_' + key + '_' + idx;
+    /* Override (if any) takes precedence over the sheet's target value
+       for both display (target()) AND evaluation (evaluate/actual/etc). */
+    const effective = () => APP.setupOverrides[ruleId] || rule.target;
     SETUP_METRICS.push({
-      id:             'setup_' + key + '_' + idx,
+      id:             ruleId,
+      ruleId:         ruleId,        /* exposed so the matrix cell knows which override to edit */
       label:          rule.kpi + (isUnknown ? ' (rule pending)' : ''),
-      target:         () => rule.target || '—',
+      target:         () => effective() || '—',
+      isOverridden:   () => !!APP.setupOverrides[ruleId],
+      sheetTarget:    rule.target,   /* original sheet value, for the "reset to sheet" tooltip */
       appliesTo:      ['adset'],
-      evaluate:       (item) => handler.evaluate(item, rule.target),
-      actual:         (item) => handler.actual         ? handler.actual(item, rule.target)         : '—',
-      mismatchDetail: (item) => handler.mismatchDetail ? handler.mismatchDetail(item, rule.target) : '',
-      details:        handler.details ? (item) => handler.details(item, rule.target) : undefined
+      evaluate:       (item) => handler.evaluate(item, effective()),
+      actual:         (item) => handler.actual         ? handler.actual(item, effective())         : '—',
+      mismatchDetail: (item) => handler.mismatchDetail ? handler.mismatchDetail(item, effective()) : '',
+      details:        handler.details ? (item) => handler.details(item, effective()) : undefined
     });
   });
 }
@@ -1802,6 +1840,28 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
        </div>`
     : '';
 
+  /* Render the Target Goal cell with an admin pencil for inline edit
+     and a "(custom)" badge + clear-X when an override is active. The
+     pencil is hidden for non-admin users so visitors see a clean cell. */
+  const targetGoalHtml = (m) => {
+    const isOverridden = m.isOverridden && m.isOverridden();
+    const editBtn = (APP.admin && m.ruleId) ? `
+      <button type="button" title="Edit Target Goal (saved locally in this browser)"
+        onclick="event.stopPropagation(); editSetupTarget('${m.ruleId}', '${escH(m.label).replace(/'/g, '&#39;')}')"
+        class="ml-1 inline-flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition" aria-label="Edit target">
+        <svg class="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>` : '';
+    const overrideBadge = (APP.admin && isOverridden) ? `
+      <button type="button" title="Custom override — click to reset to sheet value (${escH(m.sheetTarget || '—')})"
+        onclick="event.stopPropagation(); setSetupOverride('${m.ruleId}', '')"
+        class="ml-1 inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">
+        Custom <span class="text-amber-500">✕</span>
+      </button>` : '';
+    return `<div class="text-sm font-mono text-slate-600 dark:text-slate-400 inline-flex items-center flex-wrap gap-y-0.5">${m.target()}${editBtn}${overrideBadge}</div>`;
+  };
+
   /* Desktop row (≥ lg) */
   const tbody = rowsData.map(d => `
       <tr class="border-b border-slate-200/40 dark:border-slate-700/30 align-top">
@@ -1809,7 +1869,7 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
           <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">${d.m.label}</div>
         </td>
         <td class="px-4 py-4">
-          <div class="text-sm font-mono text-slate-600 dark:text-slate-400">${d.m.target()}</div>
+          ${targetGoalHtml(d.m)}
         </td>
         <td class="px-4 py-4">
           ${complianceCellButton(sectionKey, d.m.id, d.compliant.length, 'pass')}
@@ -1835,7 +1895,7 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
         </div>
         <div class="px-4 py-3">
           <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Target Goal</div>
-          <div class="text-xs font-mono text-slate-600 dark:text-slate-400 break-words">${d.m.target()}</div>
+          <div class="text-xs font-mono text-slate-600 dark:text-slate-400 break-words">${targetGoalHtml(d.m)}</div>
         </div>
         <div class="px-4 py-3">
           <div class="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400/80 mb-1.5">Compliant</div>
@@ -2237,6 +2297,15 @@ async function loadData() {
     const sheetP  = loadThresholdSheet();
     const campsP  = fetchCampaigns();
     const adsetsP = fetchAdSets();
+
+    /* The sheet usually arrives AFTER campaigns/ad sets — when it does,
+       SETUP_METRICS has been rebuilt from APP.setupRules but the matrix
+       was already rendered with the fallback metrics. Re-render so the
+       sheet's KPIs (Age=25-54, Gender=Female, Location Included=…)
+       replace the fallback "Specific age range" / "At least one geo
+       target" labels. */
+    sheetP.then(() => renderAll())
+          .catch(() => { /* surfaces below */ });
 
     campsP.then(camps => {
       APP.campaigns = camps;
