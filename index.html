@@ -1741,12 +1741,46 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
   if (contextMetric && contextKind === 'fail') {
     let detail = '';
     try {
-      if (contextMetric.mismatchDetail) {
-        detail = String(contextMetric.mismatchDetail(item, APP.insights[item.id]) || '').trim();
-      } else if (contextMetric.actual) {
-        detail = String(contextMetric.actual(item, APP.insights[item.id]) || '').trim();
+      const isCampaign     = !!item.objective;
+      const isAdSetOnly    = contextMetric.appliesTo
+        && contextMetric.appliesTo.includes('adset')
+        && !contextMetric.appliesTo.includes('campaign');
+      const isRollupCase   = isCampaign && isAdSetOnly;
+
+      if (isRollupCase) {
+        /* Campaigns don't carry targeting in Meta — only ad sets do.
+           Calling metric.mismatchDetail(campaign, …) on a campaign for
+           an ad-set-only KPI would (incorrectly) report 'No location
+           targeting set' / 'Default 18-65' / etc., because the campaign
+           object has no targeting field. The TRUE mismatch lives on
+           its child ad sets. Enumerate the failing children and surface
+           a concrete example. */
+        const children = APP.adsets.filter(a => a.campaign_id === item.id);
+        const failed   = children.filter(c =>
+          contextMetric.evaluate(c, APP.insights[c.id]) === 'fail');
+        if (failed.length > 0) {
+          const first = failed[0];
+          let firstDetail = '';
+          if (contextMetric.mismatchDetail) {
+            firstDetail = String(contextMetric.mismatchDetail(first, APP.insights[first.id]) || '').trim();
+          } else if (contextMetric.actual) {
+            firstDetail = String(contextMetric.actual(first, APP.insights[first.id]) || '').trim();
+          }
+          firstDetail = firstDetail.replace(/<[^>]*>/g, '');
+          detail = failed.length === 1
+            ? `1 child ad set failed · ${firstDetail}`
+            : `${failed.length} of ${children.length} ad sets failed · e.g. ${firstDetail}`;
+        }
+      } else {
+        /* Ad set, or campaign-level KPI (Performance metrics that apply
+           to both): call mismatchDetail/actual on the entity directly. */
+        if (contextMetric.mismatchDetail) {
+          detail = String(contextMetric.mismatchDetail(item, APP.insights[item.id]) || '').trim();
+        } else if (contextMetric.actual) {
+          detail = String(contextMetric.actual(item, APP.insights[item.id]) || '').trim();
+        }
+        detail = detail.replace(/<[^>]*>/g, '');
       }
-      detail = detail.replace(/<[^>]*>/g, '');  /* strip any HTML */
     } catch (_) { /* leave empty */ }
     if (detail) {
       mismatchHtml = `
