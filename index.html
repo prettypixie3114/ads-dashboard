@@ -1418,6 +1418,25 @@ const SETUP_HANDLERS = {
       if (bad.length) return `Not in allowed list: ${_listPreview(bad)}`;
       return 'Mismatch';
     },
+    /* Same data as mismatchDetail but as structured items so the renderer
+       can show a "View all N" expand instead of truncating to 3 + "more". */
+    mismatchItems(item, target) {
+      const t = item.targeting || {};
+      const exc = _flattenGeo(t.excluded_geo_locations);
+      if (exc.length) return { prefix: 'Excluded', items: exc };
+
+      const targeted = _flattenGeo(t.geo_locations);
+      if (!targeted.length) return null;
+
+      const allowed = new Set(
+        String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      if (allowed.size === 0) return { prefix: 'Targets', items: targeted };
+      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const bad = targeted.filter((_, i) => !allowed.has(cleaned[i]));
+      if (bad.length) return { prefix: 'Not in allowed list', items: bad };
+      return null;
+    },
     details(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
@@ -1435,6 +1454,10 @@ const SETUP_HANDLERS = {
     actual(item) {
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
       return exc.length === 0 ? 'None' : `${exc.length} location${exc.length===1?'':'s'} excluded`;
+    },
+    mismatchItems(item) {
+      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
+      return exc.length ? { prefix: 'Excluded', items: exc } : null;
     },
     mismatchDetail(item) {
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
@@ -1870,11 +1893,52 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
     ? `${item.name}\nNo applicable KPIs for this entity yet`
     : `${item.name}\n${tabLabel} compliance: ${pct}% (${s.pass} of ${s.total} KPIs passing)`;
 
+  /* Compliant subline — for entities passing a context-metric KPI, show
+     the actual value (e.g. age "22-65 (min 22 is a policy floor)") so
+     the user sees WHY the entity is compliant when target and actual
+     differ. Most useful for Age, where a Custom Audience floor forces
+     a min below the sheet target but the desired range is still covered. */
+  let compliantSubline = '';
+  if (contextMetric && contextKind === 'pass' && contextMetric.actual) {
+    try {
+      const isCampaign     = !!item.objective;
+      const isAdSetOnly    = contextMetric.appliesTo
+        && contextMetric.appliesTo.includes('adset')
+        && !contextMetric.appliesTo.includes('campaign');
+      const isRollupCase   = isCampaign && isAdSetOnly;
+      let actualText = '';
+      if (isRollupCase) {
+        /* Campaigns don't carry targeting; pull from the first PASSING
+           child ad set as a representative actual. */
+        const children = APP.adsets.filter(a => a.campaign_id === item.id);
+        const passed = children.filter(c =>
+          contextMetric.evaluate(c, APP.insights[c.id]) === 'pass');
+        if (passed.length > 0) {
+          actualText = String(contextMetric.actual(passed[0], APP.insights[passed[0].id]) || '').trim();
+        }
+      } else {
+        actualText = String(contextMetric.actual(item, APP.insights[item.id]) || '').trim();
+      }
+      actualText = actualText.replace(/<[^>]*>/g, '');
+      /* Skip the subline if it just repeats the target (no extra context). */
+      const target = typeof contextMetric.target === 'function' ? String(contextMetric.target() || '').trim() : '';
+      if (actualText && actualText !== target && actualText !== '—') {
+        compliantSubline = `
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug w-full sm:basis-full sm:order-last font-mono">
+            <span class="text-emerald-600 dark:text-emerald-400 font-semibold not-italic">✓ </span>${escH(actualText)}
+          </div>`;
+      }
+    } catch (_) { /* leave empty */ }
+  }
+
   /* Mismatch detail — the specific offending value for THIS entity on
      THIS KPI. Only renders inside a Non-Compliant cell expansion. */
   let mismatchHtml = '';
   if (contextMetric && contextKind === 'fail') {
     let detail = '';
+    let itemsData = null;    /* { prefix, items } when handler provides
+                                 mismatchItems — used for "View all N"
+                                 expandable list in addition to detail text. */
     try {
       const isCampaign     = !!item.objective;
       const isAdSetOnly    = contextMetric.appliesTo
@@ -1902,6 +1966,9 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
             firstDetail = String(contextMetric.actual(first, APP.insights[first.id]) || '').trim();
           }
           firstDetail = firstDetail.replace(/<[^>]*>/g, '');
+          if (contextMetric.mismatchItems) {
+            itemsData = contextMetric.mismatchItems(first, APP.insights[first.id]) || null;
+          }
           /* Name the failing ad set so the user can verify the exact
              ad set in Meta UI rather than guessing which child failed. */
           const rawName  = String(first.name || '').trim();
@@ -1920,9 +1987,26 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
           detail = String(contextMetric.actual(item, APP.insights[item.id]) || '').trim();
         }
         detail = detail.replace(/<[^>]*>/g, '');
+        if (contextMetric.mismatchItems) {
+          itemsData = contextMetric.mismatchItems(item, APP.insights[item.id]) || null;
+        }
       }
     } catch (_) { /* leave empty */ }
     if (detail) {
+      /* When the handler provides mismatchItems (Location Included /
+         Excluded etc.), append a "View all N →" toggle that reveals
+         the full list inline. Replaces the cramped "+N more" suffix
+         with explicit access to every offending city. */
+      let expandHtml = '';
+      if (itemsData && Array.isArray(itemsData.items) && itemsData.items.length > 3) {
+        const xid = `mismatch_${item.id}_${contextMetric.id || 'm'}`;
+        const fullList = itemsData.items.join(', ');
+        expandHtml = `
+          <button type="button"
+            onclick="event.stopPropagation(); toggleListTail('${xid}', this, ${itemsData.items.length})"
+            class="ml-2 text-[10px] font-medium text-rose-700 dark:text-rose-300 hover:underline decoration-dotted underline-offset-2 align-middle">View all ${itemsData.items.length} →</button>
+          <div id="${xid}" class="hidden mt-1 max-h-48 overflow-auto text-[10px] font-mono text-slate-700 dark:text-slate-300 bg-rose-50/60 dark:bg-rose-950/30 rounded p-2 border border-rose-200/60 dark:border-rose-700/40 whitespace-normal break-words leading-relaxed">${escH(fullList)}</div>`;
+      }
       /* Trust-but-verify: in admin mode, show a "Raw API ↓" toggle that
          reveals the exact Meta targeting JSON for this ad set. Eliminates
          "the dashboard is wrong" guesswork — user can verify what Meta
@@ -1942,7 +2026,7 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
       }
       mismatchHtml = `
         <div class="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5 leading-snug w-full sm:basis-full sm:order-last">
-          <span class="font-semibold">⚠ </span>${escH(detail)}${rawHtml}
+          <span class="font-semibold">⚠ </span>${escH(detail)}${expandHtml}${rawHtml}
         </div>`;
     }
   }
@@ -1966,7 +2050,7 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
         </span>
       </div>
       <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 hidden sm:inline transition" aria-hidden="true">›</span>
-      ${mismatchHtml}
+      ${compliantSubline}${mismatchHtml}
     </button>`;
 }
 
