@@ -1307,20 +1307,24 @@ const SETUP_HANDLERS = {
       return `${lo} - ${hi}`;
     },
     /* Specific reason this ad set failed the Age check.
-       Includes a Meta-link tip so the user can verify the exact ad set
-       (a common source of "the dashboard is wrong" reports was looking
-       at a different ad set than the one we flagged). */
+       The wording is intentionally precise: this is what the Meta API
+       returned, not what Meta's UI may overlay as a recommendation.
+       When users see "Age 25-54 (Your suggestion)" in Meta UI, that's
+       Meta's RECOMMENDED narrowing — the actual configured targeting
+       (what ads serve to) is what comes back from the API. Unapplied
+       suggestions don't change the API value. */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
       if (t.age_min == null && t.age_max == null) {
         const want = target ? ` (target ${target})` : '';
-        return `No age fields returned by Meta API${want} · ad set id ${item.id}`;
+        return `Meta API returned no age fields${want} · ad set id ${item.id}`;
       }
       const lo  = t.age_min == null ? '?' : t.age_min;
       const hi  = t.age_max == null ? '?' : t.age_max;
       const cur = `${lo}–${hi}`;
       const want = target ? ` (target ${target})` : '';
-      return `Set to ${cur}${want} · ad set id ${item.id}`;
+      const hint = ' · if Meta UI shows a different range with a “Your suggestion” badge, that is Meta’s recommendation, not your applied targeting — open Edit → Audience → apply or change the range, then refresh';
+      return `Meta API returns age ${cur}${want} · ad set id ${item.id}${hint}`;
     }
   },
   gender: {
