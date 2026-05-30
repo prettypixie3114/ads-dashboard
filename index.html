@@ -2862,7 +2862,29 @@ function pickDay(iso) {
 function dpHover(iso) {
   if (!PICKER.pendingStart) return;
   PICKER.hoverDate = iso;
-  renderDatePicker();
+  /* CRITICAL: do NOT re-render the entire popup on every mouse move.
+     innerHTML replacement destroys the cell the user is about to click
+     on, so the second click never resolves correctly. Instead, mutate
+     class lists in place — the cells stay live and clickable. */
+  refreshDpRangeClasses();
+}
+
+/* In-place class refresh for the in-progress range preview. Reads
+   data-iso from each cell so we don't have to rebuild the calendar
+   DOM during hover. */
+function refreshDpRangeClasses() {
+  let rs = PICKER.pendingStart, re = PICKER.hoverDate || PICKER.pendingStart;
+  if (rs && re && rs > re) [rs, re] = [re, rs];
+  const cells = document.querySelectorAll('#dpPopup .dp-day[data-iso]');
+  cells.forEach(cell => {
+    const iso = cell.dataset.iso;
+    cell.classList.remove('in-range', 'range-start', 'range-end', 'has-start', 'has-end');
+    if (rs && re && iso > rs && iso < re) cell.classList.add('in-range');
+    if (rs && iso === rs)                  cell.classList.add('range-start');
+    if (re && iso === re)                  cell.classList.add('range-end');
+    if (rs && iso === rs && rs !== re)     cell.classList.add('has-end');
+    if (re && iso === re && rs !== re)     cell.classList.add('has-start');
+  });
 }
 
 function renderDatePicker() {
@@ -2978,7 +3000,10 @@ function renderCalendar(year, month, showPrev, showNext) {
     const handler = c.outside || iso > today
       ? ''
       : `onclick="event.stopPropagation(); pickDay('${iso}')" onmouseenter="dpHover('${iso}')"`;
-    return `<div class="${cls.join(' ')}" ${handler}><span>${c.day}</span></div>`;
+    /* data-iso lets refreshDpRangeClasses() update each cell's
+       in-range / range-start / range-end classes in place during
+       hover, without destroying the DOM. */
+    return `<div class="${cls.join(' ')}" data-iso="${iso}" ${handler}><span>${c.day}</span></div>`;
   }).join('');
 
   return `
