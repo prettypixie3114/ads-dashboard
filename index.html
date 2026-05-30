@@ -1162,6 +1162,18 @@ function _listPreview(arr, n = 3) {
   return arr.length <= n ? head : `${head} +${arr.length - n} more`;
 }
 
+/* Shared helper — split a sheet target string into normalized tokens.
+   Handles all the separators humans write: comma, newline, "&", "/",
+   "and". Without this, a sheet value like "Facebook & Instagram"
+   becomes a single token "facebook & instagram" that never matches
+   Meta's API which returns ["facebook", "instagram"]. */
+function _splitTargets(s) {
+  return String(s == null ? '' : s)
+    .split(/[,\n&/]|\s+and\s+/i)
+    .map(x => x.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 const SETUP_HANDLERS = {
   age: {
     evaluate(item, target) {
@@ -1308,7 +1320,7 @@ const SETUP_HANDLERS = {
   placement: {
     evaluate(item, target) {
       const pp = item.targeting?.publisher_platforms;
-      const want = String(target || '').toLowerCase().split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+      const want = _splitTargets(target);
       if (want.length === 0) return pp?.length ? 'pass' : 'fail';
       if (!pp?.length) return 'fail';
       return want.every(w => pp.map(p => p.toLowerCase()).includes(w)) ? 'pass' : 'fail';
@@ -1326,7 +1338,7 @@ const SETUP_HANDLERS = {
   device: {
     evaluate(item, target) {
       const dp = item.targeting?.device_platforms;
-      const want = String(target || '').toLowerCase().split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+      const want = _splitTargets(target);
       if (want.length === 0) return dp?.length ? 'pass' : 'fail';
       if (!dp?.length) return 'fail';
       return want.every(w => dp.map(d => d.toLowerCase()).includes(w)) ? 'pass' : 'fail';
@@ -1734,9 +1746,14 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
             firstDetail = String(contextMetric.actual(first, APP.insights[first.id]) || '').trim();
           }
           firstDetail = firstDetail.replace(/<[^>]*>/g, '');
+          /* Name the failing ad set so the user can verify the exact
+             ad set in Meta UI rather than guessing which child failed. */
+          const rawName  = String(first.name || '').trim();
+          const truncName = rawName.length > 50 ? rawName.slice(0, 50) + '…' : rawName;
+          const nameTag   = truncName ? `“${truncName}” — ` : '';
           detail = failed.length === 1
-            ? `1 child ad set failed · ${firstDetail}`
-            : `${failed.length} of ${children.length} ad sets failed · e.g. ${firstDetail}`;
+            ? `1 child ad set failed · ${nameTag}${firstDetail}`
+            : `${failed.length} of ${children.length} ad sets failed · e.g. ${nameTag}${firstDetail}`;
         }
       } else {
         /* Ad set, or campaign-level KPI (Performance metrics that apply
