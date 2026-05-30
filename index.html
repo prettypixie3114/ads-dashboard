@@ -1038,6 +1038,40 @@ async function loadGa4() {
   }
 }
 
+/* Lookup a GA4 row for a Meta campaign by trying several match
+   strategies. Meta's URL parameter substitution often writes
+   utm_campaign as "{{campaign.name}}-{{campaign.id}}", so GA4's
+   sessionCampaignName ends up looking like
+     "PS | SINP | 09-Apr-26-120242010333850714"
+   while the dashboard knows the campaign as just
+     "PS | SINP | 09-Apr-26"
+   Exact-key lookup misses every such case. Strategies tried in order:
+     1) exact match on campaign.name
+     2) name + "-" + id (Meta's default UTM pattern)
+     3) any GA4 key that starts with the campaign name + "-"
+     4) any GA4 key that equals the campaign name after trimming a
+        trailing "-<digits>" suffix
+   Returns the GA4 row { sessions, engagedSessions, engagementRate,
+   bounceRate } or null when nothing matches. */
+function _ga4ForCampaign(campaign) {
+  const byCamp = APP.ga4?.byCampaign;
+  if (!byCamp || !campaign?.name) return null;
+  const name = campaign.name;
+  if (byCamp[name]) return byCamp[name];
+  if (campaign.id && byCamp[`${name}-${campaign.id}`]) {
+    return byCamp[`${name}-${campaign.id}`];
+  }
+  const prefix = name + '-';
+  for (const key of Object.keys(byCamp)) {
+    if (key === name) return byCamp[key];
+    if (key.startsWith(prefix)) return byCamp[key];
+    /* trim trailing -<digits> and compare */
+    const trimmed = key.replace(/-\d+$/, '');
+    if (trimmed === name) return byCamp[key];
+  }
+  return null;
+}
+
 /* Metrics carry an `appliesTo` array so the compliance evaluator knows
    whether to run them against campaigns, ad sets, or both. Targeting
    KPIs live on ad sets only — campaign-level Setup compliance is
@@ -1183,22 +1217,22 @@ const PERF_METRICS = [
       : dualTarget('BOUNCE_RATE_MAX', v => `≤ ${v}%`),
     appliesTo: ['campaign'],
     evaluate: (item) => {
-      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      const ga4 = _ga4ForCampaign(item);
       if (!ga4 || !ga4.sessions) return 'na';
       const max = thresholdsFor(item).BOUNCE_RATE_MAX;
       if (!max) return 'na';
       return (ga4.bounceRate * 100 <= max) ? 'pass' : 'fail';
     },
     actual: (item) => {
-      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      const ga4 = _ga4ForCampaign(item);
       if (!ga4 || !ga4.sessions) return '— no GA4 sessions';
       return `${(ga4.bounceRate * 100).toFixed(1)}%`;
     },
     mismatchDetail: (item) => {
-      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      const ga4 = _ga4ForCampaign(item);
       const max = thresholdsFor(item).BOUNCE_RATE_MAX || 0;
       if (!ga4 || !ga4.sessions) {
-        return `No GA4 sessions matched campaign name "${item.name}"`;
+        return `No GA4 sessions matched campaign name "${item.name}" (or any "${item.name}-<id>" variant)`;
       }
       const pct = (ga4.bounceRate * 100).toFixed(1);
       return `Current ${pct}% (target ≤ ${max}%) · ${ga4.sessions} sessions tracked in GA4`;
@@ -1261,7 +1295,7 @@ function metricActualNumber(metricId, item, ins) {
       return daily || null;
     }
     case 'bounce_rate': {
-      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      const ga4 = _ga4ForCampaign(item);
       return (ga4 && ga4.sessions) ? ga4.bounceRate * 100 : null;
     }
     default: return null;
@@ -3608,10 +3642,11 @@ function openAnalysis(id) {
   /* GA4 panel — looks up this entity's campaign by name in
      APP.ga4.byCampaign (set by loadGa4). Ad sets show their parent
      campaign's numbers (GA4 doesn't break down by ad set). */
-  const campNameForGa4 = isCamp
-    ? item.name
-    : (APP.campaigns.find(c => c.id === item.campaign_id)?.name || '');
-  const ga4Row = (APP.ga4 && APP.ga4.byCampaign) ? APP.ga4.byCampaign[campNameForGa4] : null;
+  const ga4Campaign = isCamp ? item : APP.campaigns.find(c => c.id === item.campaign_id);
+  const campNameForGa4 = ga4Campaign?.name || '';
+  /* Use _ga4ForCampaign for the fuzzy lookup — exact-name match alone
+     misses Meta's default "name-id" UTM pattern. */
+  const ga4Row = ga4Campaign ? _ga4ForCampaign(ga4Campaign) : null;
   const ga4Html = !CONFIG.GA4_WORKER_URL
     ? `<div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/20 p-4 text-[11px] text-slate-500 dark:text-slate-400">
          <strong class="text-slate-600 dark:text-slate-300">GA4 not configured.</strong>
