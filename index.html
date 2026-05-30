@@ -930,17 +930,28 @@ function parseThresholdValue(s) {
 }
 
 /* ── Live thresholds + setup rules from Google Sheet ────────────
-   Pulls two tabs (Threshold + Setup) via gviz, which works on any
-   sheet shared "Anyone with the link" — no publish-to-web step
-   needed. Silently falls back to baked defaults on any failure. */
+   Pulls two tabs (Threshold + Setup). Sheet must be shared
+   "Anyone with the link" — no publish-to-web step needed.
+   Silently falls back to baked defaults on any failure.
+
+   IMPORTANT — two endpoints, not one:
+     • Threshold uses `export?format=csv&gid=0` because gviz infers a
+       column type from the first numeric cell and then SILENTLY DROPS
+       any text cells in that column. e.g. with CAC=2100 the column is
+       typed "number", so ROAS="2X" and Budget="100/Daily" return null.
+       The export endpoint returns raw strings — no type inference.
+     • Setup uses gviz because the Target column is all-string already
+       and gviz handles multi-line cells (Location's 200 cities) cleanly.
+   Assumption: Threshold is the spreadsheet's first/default tab (gid=0). */
 async function loadThresholdSheet() {
   const id = CONFIG.SHEET_ID;
   if (!id) return;
-  const gviz = name => `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+  const thresholdUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=0`;
+  const setupUrl     = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=Setup`;
   try {
     const [thrRes, setRes] = await Promise.all([
-      fetch(gviz('Threshold'), { cache: 'no-store' }),
-      fetch(gviz('Setup'),     { cache: 'no-store' })
+      fetch(thresholdUrl, { cache: 'no-store', redirect: 'follow' }),
+      fetch(setupUrl,     { cache: 'no-store' })
     ]);
 
     /* ---- Threshold tab ---- */
