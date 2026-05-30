@@ -37,7 +37,7 @@ if (typeof CONFIG === 'undefined') {
     /* ── Field strings sent to Meta Graph API ────────────────────── */
     FIELDS: {
       CAMPAIGN_SETUP: [
-        'id','name','objective','buying_type',
+        'id','name','objective','buying_type','special_ad_categories',
         'daily_budget','lifetime_budget','status','effective_status',
         'created_time','start_time','stop_time'
       ].join(','),
@@ -49,16 +49,23 @@ if (typeof CONFIG === 'undefined') {
         'created_time','start_time','end_time'
       ].join(','),
 
+      /* purchase_roas and conversions are Meta-aggregated fields — using
+         them directly matches Meta Ads Manager exactly (vs. hand-rolling
+         sums from the actions[] array, which can over-count). */
       CAMPAIGN_INSIGHTS: [
         'spend','impressions','clicks','reach',
-        'ctr','cpc','cpp','cpm','inline_link_clicks',
-        'actions','cost_per_action_type','action_values'
+        'ctr','cpc','cpp','cpm','inline_link_clicks','frequency',
+        'actions','cost_per_action_type','action_values',
+        'purchase_roas','website_purchase_roas',
+        'conversions','conversion_values'
       ].join(','),
 
       ADSET_INSIGHTS: [
         'spend','impressions','clicks','reach',
-        'ctr','cpc','cpm','inline_link_clicks',
-        'actions','cost_per_action_type','action_values'
+        'ctr','cpc','cpm','inline_link_clicks','frequency',
+        'actions','cost_per_action_type','action_values',
+        'purchase_roas','website_purchase_roas',
+        'conversions','conversion_values'
       ].join(',')
     },
 
