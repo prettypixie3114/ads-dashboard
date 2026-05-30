@@ -1,25 +1,29 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  GA4 PROXY WORKER — Meta Ads Dashboard
+ *  GA4 PROXY WORKER — Meta Ads Dashboard (OAuth refresh-token flavor)
  *
- *  Static-site dashboards can't safely hold Google service-account keys.
- *  This Worker sits between the dashboard and GA4's Data API:
+ *  Why OAuth instead of a service account:
+ *    The prettypixie.com Workspace org blocks adding any external/non-human
+ *    identity (service accounts, external groups) to GA4 property access.
+ *    OAuth refresh tokens belong to a real org user (info@prettypixie.com)
+ *    so they bypass that policy entirely.
  *
- *    Dashboard ──HTTPS──> Worker ──signed JWT──> Google OAuth ──token──>
+ *  Flow:
+ *    Dashboard ──HTTPS──> Worker ──refresh_token grant──> Google OAuth ──>
  *                                ──token + query──> GA4 Data API
  *                                <──JSON response──┘
  *    Dashboard <──JSON──
  *
- *  Credentials never reach the browser. Real-time data per request.
- *
- *  Required secrets (set via `wrangler secret put` or Dashboard UI):
- *    GA4_SERVICE_ACCOUNT  Full JSON of the Google service-account key
- *    GA4_PROPERTY_ID      9-digit GA4 property ID (without 'properties/')
+ *  Required secrets (set via Cloudflare dashboard → Settings → Variables):
+ *    GOOGLE_CLIENT_ID      OAuth Client ID for "Web application" / "Desktop"
+ *    GOOGLE_CLIENT_SECRET  Matching client secret
+ *    GOOGLE_REFRESH_TOKEN  Long-lived refresh token from one-time auth flow
+ *    GA4_PROPERTY_ID       9-digit GA4 property ID (without 'properties/')
  *
  *  Optional secret:
- *    ALLOWED_ORIGIN       Origin allowed by CORS, e.g.
- *                         'https://prettypixie3114.github.io'
- *                         Default '*' (any origin) — tighten in production.
+ *    ALLOWED_ORIGIN        Origin allowed by CORS, e.g.
+ *                          'https://prettypixie3114.github.io'
+ *                          Default '*' (any origin) — tighten in production.
  *
  *  Request shape:
  *    GET /?since=YYYY-MM-DD&until=YYYY-MM-DD
@@ -54,19 +58,18 @@ export default {
     const since = url.searchParams.get('since') || daysAgo(7);
     const until = url.searchParams.get('until') || today();
 
-    if (!env.GA4_SERVICE_ACCOUNT || !env.GA4_PROPERTY_ID) {
-      return json({ error: 'Worker missing GA4_SERVICE_ACCOUNT or GA4_PROPERTY_ID secret' }, 500, cors);
+    const missing = [
+      'GOOGLE_CLIENT_ID',
+      'GOOGLE_CLIENT_SECRET',
+      'GOOGLE_REFRESH_TOKEN',
+      'GA4_PROPERTY_ID'
+    ].filter(k => !env[k]);
+    if (missing.length) {
+      return json({ error: `Worker missing secrets: ${missing.join(', ')}` }, 500, cors);
     }
 
-    let sa;
     try {
-      sa = JSON.parse(env.GA4_SERVICE_ACCOUNT);
-    } catch (_) {
-      return json({ error: 'GA4_SERVICE_ACCOUNT is not valid JSON' }, 500, cors);
-    }
-
-    try {
-      const accessToken = await getGoogleAccessToken(sa);
+      const accessToken = await getGoogleAccessToken(env);
       const ga4Url = `https://analyticsdata.googleapis.com/v1beta/properties/${env.GA4_PROPERTY_ID}:runReport`;
 
       const r = await fetch(ga4Url, {
@@ -106,7 +109,7 @@ export default {
 function shapeResponse(data, propertyId, since, until) {
   const rows = data.rows || [];
   const byCampaign = {};
-  let totSess = 0, totEng = 0, totBounce = 0, weightedBounce = 0, weightedEngRate = 0;
+  let totSess = 0, totEng = 0, weightedBounce = 0, weightedEngRate = 0;
 
   rows.forEach(r => {
     const name = r.dimensionValues[0]?.value || '(unset)';
@@ -136,64 +139,27 @@ function shapeResponse(data, propertyId, since, until) {
   return { totals, byCampaign, meta: { propertyId, since, until, rowCount: rows.length } };
 }
 
-/* ── Service-account JWT → access token ──────────────────────────────
-   Google's OAuth 2.0 service-account flow: build a JWT signed with the
-   service account's private key, exchange it for an access token. */
-async function getGoogleAccessToken(sa) {
-  const now    = Math.floor(Date.now() / 1000);
-  const claims = {
-    iss:   sa.client_email,
-    scope: 'https://www.googleapis.com/auth/analytics.readonly',
-    aud:   'https://oauth2.googleapis.com/token',
-    iat:   now,
-    exp:   now + 3600
-  };
-  const jwt = await signJwtRS256(claims, sa.private_key);
+/* ── Refresh token → access token ────────────────────────────────────
+   Trade the long-lived refresh token for a 1-hour access token. Google
+   accepts up to ~25k refreshes/day per client, way more than we need. */
+async function getGoogleAccessToken(env) {
+  const body = new URLSearchParams({
+    client_id:     env.GOOGLE_CLIENT_ID,
+    client_secret: env.GOOGLE_CLIENT_SECRET,
+    refresh_token: env.GOOGLE_REFRESH_TOKEN,
+    grant_type:    'refresh_token'
+  });
 
   const r = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:   `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${jwt}`
+    body:    body.toString()
   });
   const tk = await r.json();
   if (!tk.access_token) {
-    throw new Error('Google token exchange failed: ' + JSON.stringify(tk));
+    throw new Error('Google token refresh failed: ' + JSON.stringify(tk));
   }
   return tk.access_token;
-}
-
-async function signJwtRS256(claims, pemPrivateKey) {
-  const header   = { alg: 'RS256', typ: 'JWT' };
-  const unsigned = b64url(JSON.stringify(header)) + '.' + b64url(JSON.stringify(claims));
-
-  const key = await crypto.subtle.importKey(
-    'pkcs8',
-    pemToBuffer(pemPrivateKey),
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
-  return unsigned + '.' + b64urlBytes(new Uint8Array(sig));
-}
-
-function pemToBuffer(pem) {
-  /* Strip header/footer/newlines and decode the base64 body. */
-  const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-  const bin = atob(b64);
-  const buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  return buf.buffer;
-}
-
-function b64url(str) {
-  return btoa(unescape(encodeURIComponent(str)))
-    .replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-}
-function b64urlBytes(bytes) {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 function today()  { return new Date().toISOString().slice(0, 10); }
