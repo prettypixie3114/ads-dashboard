@@ -82,12 +82,12 @@ if (typeof CONFIG === 'undefined') {
          • End Goal — entity age > PHASE1_DAYS (strict final benchmark)
 
        Sheet parameter names → CONFIG threshold keys:
-         CAC                    → CPA_TARGET   (₹, lower is better)
-         ROAS                   → ROAS_TARGET  (multiple, higher is better)
-         CTR                    → CTR_MIN      (%, higher is better)
-         Conversion Rate        → CVR_MIN      (%, higher is better)
+         CAC                    → CPA_TARGET       (₹, lower is better)
+         ROAS                   → ROAS_TARGET      (multiple, higher is better)
+         CTR                    → CTR_MIN          (%, higher is better)
+         Conversion Rate        → CVR_MIN          (%, higher is better)
          Budget Campaign Level  → DAILY_BUDGET_MIN (₹/day, higher is better)
-         Bounce Rate            → (GA4 — not currently evaluated) */
+         Bounce Rate            → BOUNCE_RATE_MAX  (%, GA4-sourced, lower is better) */
     PHASE1_DAYS: 30,
 
     THRESHOLDS: {                /* END GOAL — mature campaigns (> 30 days) */
@@ -95,14 +95,16 @@ if (typeof CONFIG === 'undefined') {
       CPA_TARGET:        25.0,
       CTR_MIN:           1.0,
       CVR_MIN:           3.0,
-      DAILY_BUDGET_MIN:  2000
+      DAILY_BUDGET_MIN:  2000,
+      BOUNCE_RATE_MAX:   60      /* % — GA4 bounce rate above this fails */
     },
     THRESHOLDS_PHASE1: {         /* PHASE 1 — first 30 days, looser */
       ROAS_TARGET:       1.5,
       CPA_TARGET:        40.0,
       CTR_MIN:           0.7,
       CVR_MIN:           0.9,
-      DAILY_BUDGET_MIN:  1000
+      DAILY_BUDGET_MIN:  1000,
+      BOUNCE_RATE_MAX:   70      /* % — looser bounce cap during early phase */
     },
 
     /* ── Live config from a Google Sheet ──────────────────────────

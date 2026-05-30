@@ -912,10 +912,12 @@ const THRESHOLD_KEY_MAP = {
   'CONVERSION RATE':       'CVR_MIN',
   'CVR':                   'CVR_MIN',
   'BUDGET CAMPAIGN LEVEL': 'DAILY_BUDGET_MIN',
-  'DAILY BUDGET':          'DAILY_BUDGET_MIN'
-  /* 'BOUNCE RATE'         → GA4-only, no Meta source, intentionally unmapped */
+  'DAILY BUDGET':          'DAILY_BUDGET_MIN',
+  /* Bounce Rate is sourced from GA4 (sessions-weighted average per
+     campaign). Threshold is a MAX — bounce rate above this fails. */
+  'BOUNCE RATE':           'BOUNCE_RATE_MAX'
 };
-const THRESHOLDS_NOT_AVAILABLE = ['BOUNCE RATE','SESSIONS','ENGAGED SESSIONS','ENGAGEMENT RATE'];
+const THRESHOLDS_NOT_AVAILABLE = ['SESSIONS','ENGAGED SESSIONS','ENGAGEMENT RATE'];
 
 /* Parse a threshold cell that may be a raw number ("1200"), a
    percentage ("8%" → 8), a multiplier ("2X" → 2), or a range
@@ -1060,7 +1062,7 @@ const PERF_METRICS = [
     }
   },
   {
-    id: 'cpa', label: 'Cost per Conversion',
+    id: 'cpa', label: 'CAC (Cost per Conversion)',
     target: (item) => item
       ? `≤ ₹${thresholdsFor(item).CPA_TARGET}`
       : dualTarget('CPA_TARGET', v => `≤ ₹${v}`),
@@ -1168,6 +1170,39 @@ const PERF_METRICS = [
       const spend = parseFloat(ins?.spend || 0);
       return `0 conversions on ₹${spend.toFixed(0)} spend`;
     }
+  },
+  {
+    /* Bounce Rate — sourced from GA4 (no Meta equivalent). Joins by
+       campaign name to the GA4 byCampaign breakdown the Worker returns.
+       Campaign-level only because GA4 doesn't expose ad-set granularity.
+       Returns 'na' if GA4 isn't configured, has no session data for the
+       campaign, or the campaign name doesn't match a GA4 row. */
+    id: 'bounce_rate', label: 'Bounce Rate',
+    target: (item) => item
+      ? `≤ ${thresholdsFor(item).BOUNCE_RATE_MAX || 0}%`
+      : dualTarget('BOUNCE_RATE_MAX', v => `≤ ${v}%`),
+    appliesTo: ['campaign'],
+    evaluate: (item) => {
+      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      if (!ga4 || !ga4.sessions) return 'na';
+      const max = thresholdsFor(item).BOUNCE_RATE_MAX;
+      if (!max) return 'na';
+      return (ga4.bounceRate * 100 <= max) ? 'pass' : 'fail';
+    },
+    actual: (item) => {
+      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      if (!ga4 || !ga4.sessions) return '— no GA4 sessions';
+      return `${(ga4.bounceRate * 100).toFixed(1)}%`;
+    },
+    mismatchDetail: (item) => {
+      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      const max = thresholdsFor(item).BOUNCE_RATE_MAX || 0;
+      if (!ga4 || !ga4.sessions) {
+        return `No GA4 sessions matched campaign name "${item.name}"`;
+      }
+      const pct = (ga4.bounceRate * 100).toFixed(1);
+      return `Current ${pct}% (target ≤ ${max}%) · ${ga4.sessions} sessions tracked in GA4`;
+    }
   }
 ];
 
@@ -1202,7 +1237,8 @@ const METRIC_TIER_MAP = {
   cpa:          { key: 'CPA_TARGET',       direction: 'lower'  },
   roas:         { key: 'ROAS_TARGET',      direction: 'higher' },
   cvr:          { key: 'CVR_MIN',          direction: 'higher' },
-  budget_level: { key: 'DAILY_BUDGET_MIN', direction: 'higher' }
+  budget_level: { key: 'DAILY_BUDGET_MIN', direction: 'higher' },
+  bounce_rate:  { key: 'BOUNCE_RATE_MAX',  direction: 'lower'  }
 };
 
 /* Numeric actual extractor per metric — for achievementTier(). */
@@ -1223,6 +1259,10 @@ function metricActualNumber(metricId, item, ins) {
     case 'budget_level': {
       const daily = (item.daily_budget || 0) / 100;
       return daily || null;
+    }
+    case 'bounce_rate': {
+      const ga4 = APP.ga4?.byCampaign?.[item.name];
+      return (ga4 && ga4.sessions) ? ga4.bounceRate * 100 : null;
     }
     default: return null;
   }
