@@ -1291,14 +1291,11 @@ function _parseAgeTarget(target) {
 
 const SETUP_HANDLERS = {
   age: {
-    /* Compliance rule: the target ages must be REACHABLE within the
-       ad set's actual targeting. The API's age_min/max define what's
-       actually served. Exact match passes. A BROADER actual range
-       (e.g. API 22-65 vs. target 25-54) also passes — the target ages
-       are still reached, the floor (22) is usually a Custom Audience
-       policy enforced by Meta and can't be raised in the UI. A
-       NARROWER actual range (e.g. API 28-50 vs. target 25-54) fails
-       because it misses target ages. */
+    /* Compliance rule: strict equality with the sheet target. If sheet
+       says 25-54 and the API returns anything else, the ad set is
+       non-compliant — including a "broader" range like 22-65, which
+       also serves to ages outside the desired slab (22-24 and 55-65)
+       and so doesn't match the spec. Exact match only. */
     evaluate(item, target) {
       const t = item.targeting || {};
       const want = _parseAgeTarget(target);
@@ -1306,47 +1303,43 @@ const SETUP_HANDLERS = {
         if (t.age_min == null && t.age_max == null) return 'na';
         return (t.age_min === 18 && t.age_max === 65) ? 'fail' : 'pass';
       }
-      const lo = t.age_min == null ? 13 : t.age_min;  /* Meta's absolute floor */
-      const hi = t.age_max == null ? 65 : t.age_max;  /* Meta's open-ended max */
-      /* PASS if actual range covers target range */
-      return (lo <= want.min && hi >= want.max) ? 'pass' : 'fail';
+      return (t.age_min === want.min && t.age_max === want.max) ? 'pass' : 'fail';
     },
-    actual(item, target) {
+    actual(item) {
       const t = item.targeting || {};
       if (t.age_min == null && t.age_max == null) return '(no age set in API)';
       const lo = t.age_min == null ? '?' : t.age_min;
       const hi = t.age_max == null ? '?' : t.age_max;
-      const base = `${lo} - ${hi}`;
-      /* Add a small "min N enforced" note when the actual min is below
-         the target min — usually a Custom Audience policy floor. */
-      const want = _parseAgeTarget(target);
-      if (want && typeof t.age_min === 'number' && t.age_min < want.min) {
-        return `${base} (min ${t.age_min} is a policy floor)`;
-      }
-      return base;
+      return `${lo} - ${hi}`;
     },
-    /* Only called when evaluate() returned 'fail'. Two real fail cases:
-       (1) API returned no age at all, (2) actual range is NARROWER than
-       target so some target ages are missed. */
+    /* Only called when evaluate() returned 'fail'. Names every way the
+       actual range diverges from the target so the user knows exactly
+       what to change in Meta:
+         - min below target  → often a Custom Audience policy floor
+         - min above target  → missing the lower age band
+         - max above target  → over-broad (extra older ages)
+         - max below target  → missing the upper age band */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
       if (t.age_min == null && t.age_max == null) {
-        const want = target ? ` (target ${target})` : '';
-        return `Meta API returned no age fields${want} · ad set id ${item.id}`;
+        const tgt = target ? ` (target ${target})` : '';
+        return `Meta API returned no age fields${tgt} · ad set id ${item.id}`;
       }
       const lo = t.age_min == null ? '?' : t.age_min;
       const hi = t.age_max == null ? '?' : t.age_max;
       const want = _parseAgeTarget(target);
-      let missing = '';
-      if (want) {
-        if (typeof t.age_min === 'number' && t.age_min > want.min) {
-          missing = ` — missing ages ${want.min}–${t.age_min - 1}`;
-        } else if (typeof t.age_max === 'number' && t.age_max < want.max) {
-          missing = ` — missing ages ${t.age_max + 1}–${want.max}`;
-        }
+      const reasons = [];
+      if (want && typeof t.age_min === 'number') {
+        if (t.age_min < want.min) reasons.push(`min ${t.age_min} is below target ${want.min} (often a Custom Audience policy floor)`);
+        else if (t.age_min > want.min) reasons.push(`missing ages ${want.min}–${t.age_min - 1}`);
       }
+      if (want && typeof t.age_max === 'number') {
+        if (t.age_max > want.max) reasons.push(`max ${t.age_max} is above target ${want.max}`);
+        else if (t.age_max < want.max) reasons.push(`missing ages ${t.age_max + 1}–${want.max}`);
+      }
+      const issue = reasons.length ? ` — ${reasons.join(', ')}` : '';
       const tgt = target ? ` (target ${target})` : '';
-      return `Meta API returns age ${lo}–${hi}${tgt}${missing} · ad set id ${item.id}`;
+      return `Meta API returns age ${lo}–${hi}${tgt}${issue} · ad set id ${item.id}`;
     }
   },
   gender: {
