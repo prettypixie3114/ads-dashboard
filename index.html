@@ -1283,48 +1283,70 @@ function _placementDescription(t) {
   return parts.join(', ');
 }
 
+/* Parse a sheet age target like "25-54" → { min: 25, max: 54 } or null. */
+function _parseAgeTarget(target) {
+  const m = String(target || '').match(/(\d+)\s*[-–to]+\s*(\d+)/);
+  return m ? { min: +m[1], max: +m[2] } : null;
+}
+
 const SETUP_HANDLERS = {
   age: {
+    /* Compliance rule: the target ages must be REACHABLE within the
+       ad set's actual targeting. The API's age_min/max define what's
+       actually served. Exact match passes. A BROADER actual range
+       (e.g. API 22-65 vs. target 25-54) also passes — the target ages
+       are still reached, the floor (22) is usually a Custom Audience
+       policy enforced by Meta and can't be raised in the UI. A
+       NARROWER actual range (e.g. API 28-50 vs. target 25-54) fails
+       because it misses target ages. */
     evaluate(item, target) {
       const t = item.targeting || {};
-      const m = String(target || '').match(/(\d+)\s*[-–to]+\s*(\d+)/);
-      if (!m) {
-        /* No target → fail only if API returned a default-broad range. If
-           the API returned NO age fields at all, we can't judge. */
+      const want = _parseAgeTarget(target);
+      if (!want) {
         if (t.age_min == null && t.age_max == null) return 'na';
         return (t.age_min === 18 && t.age_max === 65) ? 'fail' : 'pass';
       }
-      /* Strict equality on what Meta API actually returned — no defaults. */
-      return (t.age_min === +m[1] && t.age_max === +m[2]) ? 'pass' : 'fail';
+      const lo = t.age_min == null ? 13 : t.age_min;  /* Meta's absolute floor */
+      const hi = t.age_max == null ? 65 : t.age_max;  /* Meta's open-ended max */
+      /* PASS if actual range covers target range */
+      return (lo <= want.min && hi >= want.max) ? 'pass' : 'fail';
     },
-    actual(item) {
+    actual(item, target) {
       const t = item.targeting || {};
-      /* Show EXACTLY what the API returned, no fabricated defaults.
-         If both are missing, say so plainly. */
       if (t.age_min == null && t.age_max == null) return '(no age set in API)';
       const lo = t.age_min == null ? '?' : t.age_min;
       const hi = t.age_max == null ? '?' : t.age_max;
-      return `${lo} - ${hi}`;
+      const base = `${lo} - ${hi}`;
+      /* Add a small "min N enforced" note when the actual min is below
+         the target min — usually a Custom Audience policy floor. */
+      const want = _parseAgeTarget(target);
+      if (want && typeof t.age_min === 'number' && t.age_min < want.min) {
+        return `${base} (min ${t.age_min} is a policy floor)`;
+      }
+      return base;
     },
-    /* Specific reason this ad set failed the Age check.
-       The wording is intentionally precise: this is what the Meta API
-       returned, not what Meta's UI may overlay as a recommendation.
-       When users see "Age 25-54 (Your suggestion)" in Meta UI, that's
-       Meta's RECOMMENDED narrowing — the actual configured targeting
-       (what ads serve to) is what comes back from the API. Unapplied
-       suggestions don't change the API value. */
+    /* Only called when evaluate() returned 'fail'. Two real fail cases:
+       (1) API returned no age at all, (2) actual range is NARROWER than
+       target so some target ages are missed. */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
       if (t.age_min == null && t.age_max == null) {
         const want = target ? ` (target ${target})` : '';
         return `Meta API returned no age fields${want} · ad set id ${item.id}`;
       }
-      const lo  = t.age_min == null ? '?' : t.age_min;
-      const hi  = t.age_max == null ? '?' : t.age_max;
-      const cur = `${lo}–${hi}`;
-      const want = target ? ` (target ${target})` : '';
-      const hint = ' · if Meta UI shows a different range with a “Your suggestion” badge, that is Meta’s recommendation, not your applied targeting — open Edit → Audience → apply or change the range, then refresh';
-      return `Meta API returns age ${cur}${want} · ad set id ${item.id}${hint}`;
+      const lo = t.age_min == null ? '?' : t.age_min;
+      const hi = t.age_max == null ? '?' : t.age_max;
+      const want = _parseAgeTarget(target);
+      let missing = '';
+      if (want) {
+        if (typeof t.age_min === 'number' && t.age_min > want.min) {
+          missing = ` — missing ages ${want.min}–${t.age_min - 1}`;
+        } else if (typeof t.age_max === 'number' && t.age_max < want.max) {
+          missing = ` — missing ages ${t.age_max + 1}–${want.max}`;
+        }
+      }
+      const tgt = target ? ` (target ${target})` : '';
+      return `Meta API returns age ${lo}–${hi}${tgt}${missing} · ad set id ${item.id}`;
     }
   },
   gender: {
