@@ -159,17 +159,23 @@
     .dp-cals-row { display: flex; gap: 28px; }
     .dp-cal { width: 232px; }
 
-    /* Hint banner above the two calendars — tells the user whether
+    /* Hint banner BELOW the two calendars — tells the user whether
        to pick a start date or an end date, plus an Apply button for
-       a single-day selection. */
+       a single-day selection. Sits below the calendars (not above) so
+       its height changing from "one line of text" to "text + buttons"
+       after the first click doesn't push the calendar dates down —
+       otherwise a user's second-click cursor lands on a different
+       date than they aimed for. min-height keeps the row stable
+       regardless of contents. */
     .dp-hint {
       display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
       font-size: 11.5px; line-height: 1.4;
-      padding: 6px 0 12px;
-      border-bottom: 1px solid rgba(148,163,184,0.12);
-      margin-bottom: 10px;
+      padding: 10px 0 4px;
+      border-top: 1px solid rgba(148,163,184,0.12);
+      margin-top: 10px;
+      min-height: 38px;
     }
-    html.dark .dp-hint { border-bottom-color: rgba(148,163,184,0.08); }
+    html.dark .dp-hint { border-top-color: rgba(148,163,184,0.08); }
     .dp-apply, .dp-clear {
       font-size: 11px; font-weight: 600;
       padding: 3px 9px; border-radius: 6px; cursor: pointer;
