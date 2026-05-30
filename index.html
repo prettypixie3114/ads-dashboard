@@ -763,16 +763,6 @@ function _revenue(ins) {
     .filter(a => CONFIG.CONVERSION_ACTIONS.includes(a.action_type))
     .reduce((s,a) => s + parseFloat(a.value || 0), 0);
 }
-function _budgetPace(item, ins) {
-  const dailyBud = (item.daily_budget || 0) / 100;
-  const spend    = parseFloat(ins?.spend || 0);
-  if (!dailyBud || !APP.since || !APP.until) return null;
-  const days     = Math.max(1, (new Date(APP.until) - new Date(APP.since)) / 86400000 + 1);
-  const expected = dailyBud * days;
-  if (expected === 0) return null;
-  return { variance: (spend - expected) / expected, expected, spend };
-}
-
 /* ── Phase helpers ──────────────────────────────────────────────
    Age = days since the entity started running (start_time, falling
    back to created_time). Entities ≤ PHASE1_DAYS old are still in
@@ -1027,29 +1017,6 @@ const PERF_METRICS = [
       const rev   = _revenue(ins);
       if (rev === 0 || spend === 0) return 'No revenue or spend yet';
       return `Current ${(rev / spend).toFixed(2)}× (target ≥ ${thresholdsFor(item).ROAS_TARGET}×) · ₹${rev.toFixed(0)} on ₹${spend.toFixed(0)} spend`;
-    }
-  },
-  {
-    id: 'budget', label: 'Budget Pace',
-    target: (item) => item
-      ? `within ±${(thresholdsFor(item).BUDGET_VARIANCE * 100).toFixed(0)}% of planned`
-      : dualTarget('BUDGET_VARIANCE', v => `±${(v * 100).toFixed(0)}%`),
-    appliesTo: ['campaign','adset'],
-    evaluate: (item, ins) => {
-      const p = _budgetPace(item, ins);
-      if (!p) return 'na';
-      return Math.abs(p.variance) <= thresholdsFor(item).BUDGET_VARIANCE ? 'pass' : 'fail';
-    },
-    actual: (item, ins) => {
-      const p = _budgetPace(item, ins);
-      if (!p) return '—';
-      return `${p.variance >= 0 ? '+' : ''}${(p.variance*100).toFixed(0)}%`;
-    },
-    mismatchDetail: (item, ins) => {
-      const p = _budgetPace(item, ins);
-      if (!p) return 'No daily budget set';
-      const dir = p.variance > 0 ? 'overspent' : 'underspent';
-      return `Spend ₹${p.spend.toFixed(0)} vs planned ₹${p.expected.toFixed(0)} — ${dir} ${Math.abs(p.variance*100).toFixed(0)}%`;
     }
   },
   {
@@ -3037,21 +3004,6 @@ function analyzeCompliance(item, ins) {
     else nonCompliant.push({ ...row, action: 'Below target return — raise AOV with bundles or trim spend on this set.' });
   }
 
-  /* Budget pacing — only meaningful when daily budget is set */
-  if (dailyBud > 0 && APP.since && APP.until) {
-    const days = Math.max(1, (new Date(APP.until) - new Date(APP.since)) / 86400000 + 1);
-    const expected = dailyBud * days;
-    const variance = expected > 0 ? (spend - expected) / expected : 0;
-    const row = { metric: 'Budget pace',
-                  planned: `₹${expected.toFixed(0)} over ${days}d`,
-                  actual:  `₹${spend.toFixed(0)} (${variance >= 0 ? '+' : ''}${(variance*100).toFixed(0)}%)` };
-    if (Math.abs(variance) <= t.BUDGET_VARIANCE) compliant.push(row);
-    else nonCompliant.push({ ...row,
-      action: variance > 0
-        ? 'Overspending — lower daily budget or pause underperforming ad sets.'
-        : 'Underdelivering — bid is likely too low or audience too narrow.' });
-  }
-
   return { compliant, nonCompliant, conv, cpa, roas, revenue, spend, impr, clicks, ctr, cpc, dailyBud };
 }
 
@@ -3328,15 +3280,30 @@ function openAnalysis(id) {
     const toggleBtn = hasDetails
       ? `<button type="button" onclick="toggleDetails('${id}', this)" class="text-[10px] font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 underline decoration-dotted underline-offset-2 ml-1">View ${totalCount}</button>`
       : '';
+    /* Inside the panel, each label-group shows the first PREVIEW_N items
+       inline. If there's more (typically 200+ cities for Location KPIs),
+       a "View all N" link reveals the rest in-place. Keeps the first
+       open small while letting the user drill in. */
+    const PREVIEW_N = 3;
     const detailsPanel = hasDetails
       ? `<div id="${id}" class="hidden mt-2 ml-4 pl-3 border-l-2 border-slate-200 dark:border-slate-700 space-y-2">
-           ${Object.entries(r.details).map(([label, items]) => `
+           ${Object.entries(r.details).map(([label, items], gi) => {
+             const head    = items.slice(0, PREVIEW_N);
+             const tail    = items.slice(PREVIEW_N);
+             const hasMore = tail.length > 0;
+             const lid     = `${id}_g${gi}`;
+             return `
              <div>
                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">${escH(label)} (${items.length})</div>
-               <ul class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed max-h-56 overflow-y-auto pr-2 space-y-0.5">
-                 ${items.map(s => `<li class="font-mono">${escH(String(s))}</li>`).join('')}
+               <ul class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed pr-2 space-y-0.5">
+                 ${head.map(s => `<li class="font-mono">${escH(String(s))}</li>`).join('')}
+                 ${hasMore ? `<div id="${lid}_tail" class="hidden space-y-0.5 max-h-56 overflow-y-auto mt-0.5">
+                   ${tail.map(s => `<li class="font-mono list-none">${escH(String(s))}</li>`).join('')}
+                 </div>` : ''}
                </ul>
-             </div>`).join('')}
+               ${hasMore ? `<button type="button" onclick="toggleListTail('${lid}_tail', this, ${items.length})" class="text-[10px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline decoration-dotted underline-offset-2 mt-1">View all ${items.length} →</button>` : ''}
+             </div>`;
+           }).join('')}
          </div>`
       : '';
     return `
@@ -3367,11 +3334,9 @@ function openAnalysis(id) {
 
   /* Where the targets come from — small footnote shown under Target/Planned */
   const sourceFootnote = APP.view === 'performance'
-    ? `Performance thresholds (CTR, CPA, ROAS, Budget Pace) are read from
+    ? `Performance thresholds (CTR, CPA, ROAS, CVR, Daily Budget) are read from
        <strong>Settings → Performance Thresholds</strong>
-       (stored in <span class="font-mono">CONFIG.THRESHOLDS</span>).
-       Budget Pace's "expected" figure is computed as
-       <span class="font-mono">daily_budget × days in selected range</span>.`
+       (stored in <span class="font-mono">CONFIG.THRESHOLDS</span>).`
     : `Setup checks are local rules — they pass when the targeting field
        is intentionally configured (e.g. Age fails if it's left at Meta's
        default 18–65, Audience Type fails if you're targeting broad-only).
@@ -3465,6 +3430,16 @@ function toggleDetails(id, btn) {
     btn.dataset.orig = orig;
     btn.textContent  = showing ? 'Hide' : orig;
   }
+}
+
+/* Reveal-the-rest toggle used inside details panels (Location Included /
+   Excluded cities, etc.). First 3 items are always shown; clicking
+   "View all N" expands the remaining ones inline. */
+function toggleListTail(id, btn, total) {
+  const tail = document.getElementById(id);
+  if (!tail) return;
+  const showing = tail.classList.toggle('hidden') === false;
+  if (btn) btn.textContent = showing ? 'Show less ↑' : `View all ${total} →`;
 }
 
 

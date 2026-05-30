@@ -2,7 +2,7 @@
 
 A single-page dashboard that pulls campaigns, ad sets, and insights from the
 Meta Marketing API and evaluates each one against a set of compliance KPIs
-(CTR, CPA, ROAS, Budget Pace, Conversions for Performance; Age, Gender,
+(CTR, CPA, ROAS, CVR, Daily Budget, Conversions for Performance; Age, Gender,
 Location, Interests, Audience Type for Setup).
 
 Renders entirely in the browser — no backend, no build step. Credentials are
