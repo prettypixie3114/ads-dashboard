@@ -143,7 +143,7 @@
       <div id="kpiClicks" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
-      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">CTR</div>
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="CTR (All) = total clicks ÷ impressions, matching Meta's 'CTR' column in Ads Manager. For 'CTR (link click-through)', see the Link Clicks card.">CTR (All)</div>
       <div id="kpiCTR" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
@@ -418,7 +418,9 @@ const APP = {
   setupRules:         [],        // [{kpi, target}, …] parsed from Setup sheet
   deliveryCollapsed:  {},        // { active|learning|inactive|completed: true } when collapsed
   ga4:                { totals: null, byCampaign: {}, error: null, loading: false },
-  setupOverrides:     {}         // { 'setup_age_0': '22-55', … } — local per-rule target overrides
+  setupOverrides:     {},        // { 'setup_age_0': '22-55', … } — local per-rule target overrides
+  accountInfo:        null,      // { timezone_name, currency } — fetched once for TZ-correct dates
+  campaignInsightsList: []       // flat list of campaign-level insight rows for accurate totals
 };
 
 /* Load any persisted Target-Goal overrides from localStorage so they
@@ -456,17 +458,45 @@ function editSetupTarget(ruleId, currentLabel) {
 /*  2. DATE UTILITIES                                            */
 /* ══════════════════════════════════════════════════════════════ */
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  /* "Today" in the ad account's timezone — so "yesterday" means the
+     same calendar day Meta Ads Manager shows. Falls back to local
+     browser TZ if the account info isn't loaded yet. */
+  return _dateInTz(new Date(), _accountTz());
 }
 function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return _shiftDays(todayStr(), -n);
 }
 function firstOfMonth() {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return todayStr().slice(0, 7) + '-01';
 }
+
+/* Date math that respects the ad account's timezone. Meta Ads Manager
+   resolves "yesterday" in the account TZ; using the browser's UTC date
+   produces a stale day-bucket when the account TZ is ahead of UTC.
+   The account TZ is fetched once (fetchAccountInfo) and cached on
+   APP.accountInfo. Until it loads, we fall back to local browser TZ. */
+function _accountTz() {
+  return APP.accountInfo?.timezone_name || null;
+}
+function _dateInTz(date, tz) {
+  if (!tz) return date.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date);
+  const y = parts.find(p => p.type === 'year').value;
+  const m = parts.find(p => p.type === 'month').value;
+  const d = parts.find(p => p.type === 'day').value;
+  return `${y}-${m}-${d}`;
+}
+function _shiftDays(isoDate, deltaDays) {
+  /* Parse YYYY-MM-DD as a local date and shift by N days. Using noon
+     UTC avoids day-shifts at month boundaries across timezones. */
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+}
+
 function getPresetRange(preset) {
   const t = todayStr();
   switch (preset) {
@@ -527,6 +557,19 @@ function accountId() {
   return `act_${id}`;
 }
 
+/* One-time account info fetch — gives us the account timezone so
+   "yesterday"/"today" math matches Meta Ads Manager exactly. Also
+   returns the account's currency, which we can show in the UI later
+   instead of hard-coding '$' or '₹'. */
+async function fetchAccountInfo() {
+  try {
+    const url = `${CONFIG.API.META_BASE}/${accountId()}?fields=timezone_name,currency,name&access_token=${encodeURIComponent(CONFIG.META_ACCESS_TOKEN)}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) { return null; }
+}
+
 async function fetchCampaigns() {
   return fetchAllPages(`${accountId()}/campaigns`, {
     fields: CONFIG.FIELDS.CAMPAIGN_SETUP,
@@ -571,13 +614,16 @@ async function fetchAccountInsights(level) {
     ? baseFields + ',campaign_id'
     : baseFields + ',adset_id,campaign_id';
 
+  /* No status filter on insights — Meta Ads Manager includes ANY entity
+     that spent during the window, regardless of current effective_status.
+     Filtering to ACTIVE/PAUSED here was silently dropping ARCHIVED
+     campaigns that delivered yesterday but were archived later. The
+     date range is the right scope; the UI filter is a display concern,
+     not a totals concern. */
   return fetchAllPages(`${accountId()}/insights`, {
     fields,
     level,
-    time_range: JSON.stringify({ since: APP.since, until: APP.until }),
-    filtering: JSON.stringify([
-      { field: `${level}.effective_status`, operator: 'IN', value: ['ACTIVE','PAUSED'] }
-    ])
+    time_range: JSON.stringify({ since: APP.since, until: APP.until })
   });
 }
 
@@ -636,15 +682,29 @@ function _flattenGeo(geo) {
   if (geo.neighborhoods)       out.push(...geo.neighborhoods.map(n => n.name).filter(Boolean));
   if (geo.subneighborhoods)    out.push(...geo.subneighborhoods.map(n => n.name).filter(Boolean));
   if (geo.zips?.length)        out.push(...geo.zips.map(z => z.key || z.name || JSON.stringify(z)));
+  /* Saved location sets (Meta UI shows the friendly name; the API
+     returns numeric cluster IDs only). Surface them as 'Saved set #ID'
+     so the user knows real locations are configured. */
+  if (geo.location_cluster_ids?.length) {
+    out.push(...geo.location_cluster_ids.map(id => `Saved set #${id.key || id.id || id}`));
+  }
   return out;
 }
 
 function parseTargeting(t) {
   if (!t) return { age:'—', gender:'—', locations:'—', interests:'—' };
 
-  /* Age — formatted "25 - 54" with spaces, matching Meta UI */
-  const amin = t.age_min || 18, amax = t.age_max || 65;
-  const age  = (amin === 18 && amax === 65) ? 'All ages' : `${amin} - ${amax}`;
+  /* Age — show EXACTLY what Meta API returned, no fabricated defaults.
+     If both fields are missing, say so. If one is missing, show '?' for
+     that side. "All ages" only when API explicitly returned 18-65. */
+  let age;
+  if (t.age_min == null && t.age_max == null) {
+    age = '(not set in API)';
+  } else if (t.age_min === 18 && t.age_max === 65) {
+    age = 'All ages';
+  } else {
+    age = `${t.age_min == null ? '?' : t.age_min} - ${t.age_max == null ? '?' : t.age_max}`;
+  }
 
   /* Gender — Meta UI uses "Women"/"Men", not "Female"/"Male" */
   const g    = t.genders;
@@ -669,9 +729,12 @@ function parseTargeting(t) {
     if (s.interests) iList.push(...s.interests.map(i => i.name));
     if (s.behaviors) iList.push(...s.behaviors.map(b => b.name));
   });
+  /* Empty interests + Advantage+ Audience on → Meta UI shows
+     "Advantage+ audience" not "All demographics...". */
+  const advAudience = t.targeting_automation?.advantage_audience === 1;
   const interests = iList.length
     ? iList.slice(0,3).join(', ') + (iList.length > 3 ? ` +${iList.length-3}` : '')
-    : 'All demographics, interests and behaviours';
+    : (advAudience ? 'Advantage+ audience' : 'All demographics, interests and behaviours');
 
   return { age, gender, locations, interests };
 }
@@ -759,6 +822,18 @@ function escH(s) {
 /*    actual(item, ins)   → human string for the expanded view   */
 /* ══════════════════════════════════════════════════════════════ */
 function _revenue(ins) {
+  /* Prefer Meta's pre-aggregated purchase-only revenue when present
+     (action_values can include zero-or-low-value lead/contact events
+     that inflate ROAS vs. what Meta Ads Manager shows). Fall back to
+     the hand-rolled sum from action_values if purchase_roas is missing
+     (older API versions / accounts without a Pixel). */
+  const pr = ins?.purchase_roas || ins?.website_purchase_roas;
+  if (pr && pr.length && ins?.spend) {
+    /* purchase_roas is returned as [{action_type, value}] where value
+       is the ROAS ratio. Revenue = spend × ROAS. */
+    const ratio = parseFloat(pr[0]?.value || 0);
+    if (ratio > 0) return ratio * parseFloat(ins.spend || 0);
+  }
   return (ins?.action_values || [])
     .filter(a => CONFIG.CONVERSION_ACTIONS.includes(a.action_type))
     .reduce((s,a) => s + parseFloat(a.value || 0), 0);
@@ -1174,29 +1249,78 @@ function _splitTargets(s) {
     .filter(Boolean);
 }
 
+/* Build a human-readable placement string from Meta's targeting object,
+   matching what Meta Ads Manager UI shows.
+
+   Meta layers placements as: publisher_platforms (top: facebook,
+   instagram, messenger, audience_network) + per-platform position
+   arrays (facebook_positions: ['feed','story',...], etc.). If a
+   per-platform list is present, only those positions are eligible —
+   so "facebook" alone is misleading when really only "Facebook Feed"
+   is targeted. Compose the description from positions when present. */
+function _placementDescription(t) {
+  if (!t) return 'Auto (all placements)';
+  const pp = t.publisher_platforms;
+  if (!pp || !pp.length) return 'Auto (all placements)';
+
+  const POS_LABELS = {
+    facebook:         { key: 'facebook_positions',         display: 'Facebook' },
+    instagram:        { key: 'instagram_positions',        display: 'Instagram' },
+    messenger:        { key: 'messenger_positions',        display: 'Messenger' },
+    audience_network: { key: 'audience_network_positions', display: 'Audience Network' },
+    threads:          { key: 'threads_positions',          display: 'Threads' }
+  };
+  const parts = [];
+  pp.forEach(plat => {
+    const cfg = POS_LABELS[plat] || { key: null, display: plat };
+    const positions = cfg.key ? t[cfg.key] : null;
+    if (positions && positions.length) {
+      parts.push(`${cfg.display} ${positions.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('/')}`);
+    } else {
+      parts.push(cfg.display);
+    }
+  });
+  return parts.join(', ');
+}
+
 const SETUP_HANDLERS = {
   age: {
     evaluate(item, target) {
       const t = item.targeting || {};
       const m = String(target || '').match(/(\d+)\s*[-–to]+\s*(\d+)/);
       if (!m) {
-        return (!t.age_min || t.age_min === 18) && (!t.age_max || t.age_max === 65) ? 'fail' : 'pass';
+        /* No target → fail only if API returned a default-broad range. If
+           the API returned NO age fields at all, we can't judge. */
+        if (t.age_min == null && t.age_max == null) return 'na';
+        return (t.age_min === 18 && t.age_max === 65) ? 'fail' : 'pass';
       }
+      /* Strict equality on what Meta API actually returned — no defaults. */
       return (t.age_min === +m[1] && t.age_max === +m[2]) ? 'pass' : 'fail';
     },
     actual(item) {
       const t = item.targeting || {};
-      return `${t.age_min || 18} - ${t.age_max || 65}`;
+      /* Show EXACTLY what the API returned, no fabricated defaults.
+         If both are missing, say so plainly. */
+      if (t.age_min == null && t.age_max == null) return '(no age set in API)';
+      const lo = t.age_min == null ? '?' : t.age_min;
+      const hi = t.age_max == null ? '?' : t.age_max;
+      return `${lo} - ${hi}`;
     },
-    /* Specific reason this ad set failed the Age check. */
+    /* Specific reason this ad set failed the Age check.
+       Includes a Meta-link tip so the user can verify the exact ad set
+       (a common source of "the dashboard is wrong" reports was looking
+       at a different ad set than the one we flagged). */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
-      const isDefault = (!t.age_min || t.age_min === 18) && (!t.age_max || t.age_max === 65);
-      const cur = `${t.age_min || 18}–${t.age_max || 65}`;
+      if (t.age_min == null && t.age_max == null) {
+        const want = target ? ` (target ${target})` : '';
+        return `No age fields returned by Meta API${want} · ad set id ${item.id}`;
+      }
+      const lo  = t.age_min == null ? '?' : t.age_min;
+      const hi  = t.age_max == null ? '?' : t.age_max;
+      const cur = `${lo}–${hi}`;
       const want = target ? ` (target ${target})` : '';
-      return isDefault
-        ? `Default 18–65, no narrowing${want}`
-        : `Set to ${cur}${want}`;
+      return `Set to ${cur}${want} · ad set id ${item.id}`;
     }
   },
   gender: {
@@ -1326,12 +1450,13 @@ const SETUP_HANDLERS = {
       return want.every(w => pp.map(p => p.toLowerCase()).includes(w)) ? 'pass' : 'fail';
     },
     actual(item) {
-      const pp = item.targeting?.publisher_platforms;
-      return pp?.length ? pp.join(', ') : 'Auto (all placements)';
+      /* Show what Meta UI shows: per-platform positions when set
+         (e.g. "Facebook Feed, Instagram Feed") falling back to the
+         platform-level list. Auto / all when nothing is targeted. */
+      return _placementDescription(item.targeting);
     },
     mismatchDetail(item, target) {
-      const pp = item.targeting?.publisher_platforms;
-      const cur = pp?.length ? pp.join(', ') : 'Auto / all placements';
+      const cur = _placementDescription(item.targeting);
       return target ? `Currently: ${cur} (target ${target})` : `Currently: ${cur}`;
     }
   },
@@ -1356,7 +1481,11 @@ const SETUP_HANDLERS = {
   audience_type: {
     evaluate(item) {
       const t = item.targeting || {};
-      const has = (t.custom_audiences?.length > 0) ||
+      /* Meta's Advantage+ Audience flag — when on, Meta is allowed to
+         find buyers beyond the explicit inputs. Counts as configured. */
+      const adv = t.targeting_automation?.advantage_audience === 1;
+      const has = adv ||
+                  (t.custom_audiences?.length > 0) ||
                   (t.interests?.length > 0) || (t.behaviors?.length > 0) ||
                   (t.flexible_spec?.length > 0);
       return has ? 'pass' : 'fail';
@@ -1365,13 +1494,14 @@ const SETUP_HANDLERS = {
       const t = item.targeting || {};
       if (t.custom_audiences?.length) return `${t.custom_audiences.length} custom audience${t.custom_audiences.length===1?'':'s'}`;
       if (t.interests?.length || t.behaviors?.length || t.flexible_spec?.length) return 'Detailed targeting';
+      if (t.targeting_automation?.advantage_audience === 1) return 'Advantage+ audience';
       return 'Broad only';
     },
     mismatchDetail(item) {
       const t = item.targeting || {};
       const excCA = (t.excluded_custom_audiences || []).map(a => a.name || a.id);
       if (excCA.length) return `Broad only · Excluded CA: ${_listPreview(excCA)}`;
-      return 'Broad only — no custom audience, lookalike, or detailed targeting';
+      return 'Broad only — no custom audience, lookalike, detailed targeting, or Advantage+';
     }
   },
   _unknown: {
@@ -1767,9 +1897,26 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
       }
     } catch (_) { /* leave empty */ }
     if (detail) {
+      /* Trust-but-verify: in admin mode, show a "Raw API ↓" toggle that
+         reveals the exact Meta targeting JSON for this ad set. Eliminates
+         "the dashboard is wrong" guesswork — user can verify what Meta
+         actually returned vs. what they see in Meta UI. */
+      let rawHtml = '';
+      if (APP.admin) {
+        const rawTarget = item.targeting != null ? item.targeting : null;
+        if (rawTarget) {
+          const rawId = `raw_${item.id}_${(contextMetric.id || 'm')}`;
+          const rawJson = JSON.stringify(rawTarget, null, 2);
+          rawHtml = `
+            <button type="button"
+              onclick="event.stopPropagation(); toggleRawApi('${rawId}', this)"
+              class="ml-2 text-[10px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 underline decoration-dotted underline-offset-2 align-middle">Raw API ↓</button>
+            <pre id="${rawId}" class="hidden mt-1 max-h-64 overflow-auto text-[10px] font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900/60 rounded p-2 border border-slate-200 dark:border-slate-700 whitespace-pre-wrap break-words">${escH(rawJson)}</pre>`;
+        }
+      }
       mismatchHtml = `
         <div class="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5 leading-snug w-full sm:basis-full sm:order-last">
-          <span class="font-semibold">⚠ </span>${escH(detail)}
+          <span class="font-semibold">⚠ </span>${escH(detail)}${rawHtml}
         </div>`;
     }
   }
@@ -2247,17 +2394,25 @@ function renderKPIs() {
   if (APP.view !== 'performance') { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
 
-  /* Only roll up what's currently visible — keeps KPIs consistent
-     with the table when paused items are hidden.
+  /* Accuracy over visual consistency: roll up totals from ALL fetched
+     campaigns, NOT just the ones currently visible. Meta Ads Manager's
+     "Yesterday" view includes campaigns that spent during the window
+     even if they were paused later — excluding them here would
+     underreport Spend / Impressions / Conversions. The visible table
+     stays filtered by isLive for clean UI, but the KPI strip must match
+     Meta exactly.
+
      CRITICAL: roll up at CAMPAIGN level only. Each ad set is a child of
      a campaign, and Meta returns spend/clicks/etc. at BOTH levels for
      the same underlying events. Summing both = exact 2× double counting
      (verified against Meta Ads Manager: dashboard was reporting
      ₹1,63,850 spend vs Meta's ₹81,925 — exactly 2×). */
-  const visibleIds = APP.showPaused
-    ? APP.campaigns.map(x => x.id)
-    : APP.campaigns.filter(isLive).map(x => x.id);
-  const all = visibleIds.map(id => APP.insights[id]).filter(Boolean);
+  /* Source of truth = the campaign-level insights rows Meta returned for
+     the date range. Includes archived/deleted campaigns that aren't in
+     APP.campaigns (which is restricted to ACTIVE/PAUSED for the UI). */
+  const all = (APP.campaignInsightsList && APP.campaignInsightsList.length)
+    ? APP.campaignInsightsList
+    : APP.campaigns.map(x => APP.insights[x.id]).filter(Boolean);
   const totalSpend   = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
   const totalImpr    = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
   const totalClk     = all.reduce((s,i) => s + parseInt(i.clicks||0,10), 0);
@@ -2329,6 +2484,24 @@ async function loadData() {
     APP.campaigns      = [];
     APP.adsets         = [];
     APP.adsetsLoading  = true;
+
+    /* Fetch account info (timezone, currency) ONCE per session — needed
+       so todayStr() resolves in the account's TZ, not the browser's UTC.
+       Subsequent loadData() calls reuse the cached value. */
+    if (!APP.accountInfo) {
+      const info = await fetchAccountInfo();
+      if (info) {
+        APP.accountInfo = info;
+        /* Recompute since/until now that we know the right TZ, in case
+           the page initialized them with browser-local dates. */
+        if (APP.datePreset && APP.datePreset !== 'custom') {
+          const r = getPresetRange(APP.datePreset);
+          APP.since = r.since;
+          APP.until = r.until;
+          if (typeof updateDpTriggerLabel === 'function') updateDpTriggerLabel();
+        }
+      }
+    }
 
     /* Pull live thresholds from the Google Sheet (if configured) before
        evaluating compliance. No-op + fast when no sheet URL is set. */
@@ -2448,6 +2621,11 @@ async function loadInsights() {
   });
 
   APP.insights = {};
+  APP.campaignInsightsList = [];   /* flat list of ALL campaign-level
+                                      insights — including archived
+                                      campaigns that don't appear in
+                                      APP.campaigns. Used by KPI rollup
+                                      so totals match Meta exactly. */
   try {
     /* Two parallel Meta calls + one GA4 call (no-op if worker URL unset) */
     const [campRows, adsetRows] = await Promise.all([
@@ -2457,6 +2635,7 @@ async function loadInsights() {
     ]);
     campRows.forEach(r  => { if (r.campaign_id) APP.insights[r.campaign_id] = r; });
     adsetRows.forEach(r => { if (r.adset_id)    APP.insights[r.adset_id]    = r; });
+    APP.campaignInsightsList = campRows;
   } catch (e) {
     showError(e.message);
   }
@@ -3511,6 +3690,17 @@ function toggleListTail(id, btn, total) {
   if (!tail) return;
   const showing = tail.classList.toggle('hidden') === false;
   if (btn) btn.textContent = showing ? 'Show less ↑' : `View all ${total} →`;
+}
+
+/* Admin-only raw-API toggle on mismatch rows. Reveals the exact
+   targeting JSON Meta returned so a user can verify the dashboard's
+   reading against Meta UI directly — no more guessing whether the
+   ad set we flagged is the same one they're looking at. */
+function toggleRawApi(id, btn) {
+  const pre = document.getElementById(id);
+  if (!pre) return;
+  const showing = pre.classList.toggle('hidden') === false;
+  if (btn) btn.textContent = showing ? 'Raw API ↑' : 'Raw API ↓';
 }
 
 
