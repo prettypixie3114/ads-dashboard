@@ -159,6 +159,31 @@
     .dp-cals-row { display: flex; gap: 28px; }
     .dp-cal { width: 232px; }
 
+    /* Hint banner above the two calendars — tells the user whether
+       to pick a start date or an end date, plus an Apply button for
+       a single-day selection. */
+    .dp-hint {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+      font-size: 11.5px; line-height: 1.4;
+      padding: 6px 0 12px;
+      border-bottom: 1px solid rgba(148,163,184,0.12);
+      margin-bottom: 10px;
+    }
+    html.dark .dp-hint { border-bottom-color: rgba(148,163,184,0.08); }
+    .dp-apply, .dp-clear {
+      font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 6px; cursor: pointer;
+      transition: background 120ms, color 120ms;
+    }
+    .dp-apply { background: #0f172a; color: #ffffff; }
+    .dp-apply:hover { background: #1e293b; }
+    html.dark .dp-apply { background: #e2e8f0; color: #0f172a; }
+    html.dark .dp-apply:hover { background: #cbd5e1; }
+    .dp-clear { background: transparent; color: #64748b; }
+    .dp-clear:hover { color: #0f172a; background: rgba(148,163,184,0.12); }
+    html.dark .dp-clear { color: #94a3b8; }
+    html.dark .dp-clear:hover { color: #f1f5f9; background: rgba(148,163,184,0.10); }
+
     .dp-cal-header {
       position: relative;
       display: flex; align-items: center; justify-content: center;

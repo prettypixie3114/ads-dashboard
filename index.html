@@ -1843,7 +1843,12 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
 
   /* Render the Target Goal cell with an admin pencil for inline edit
      and a "(custom)" badge + clear-X when an override is active. The
-     pencil is hidden for non-admin users so visitors see a clean cell. */
+     pencil is hidden for non-admin users so visitors see a clean cell.
+     Long multi-item targets (e.g. Location Included's 200+ cities)
+     collapse to the first PREVIEW_N items + "View all N" — keeps the
+     table compact, full list one click away. */
+  const PREVIEW_N = 3;
+  let _tgtSeq = 0;
   const targetGoalHtml = (m) => {
     const isOverridden = m.isOverridden && m.isOverridden();
     const editBtn = (APP.admin && m.ruleId) ? `
@@ -1860,7 +1865,22 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
         class="ml-1 inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">
         Custom <span class="text-amber-500">✕</span>
       </button>` : '';
-    return `<div class="text-sm font-mono text-slate-600 dark:text-slate-400 inline-flex items-center flex-wrap gap-y-0.5">${m.target()}${editBtn}${overrideBadge}</div>`;
+
+    const raw   = String(m.target() == null ? '' : m.target());
+    const items = raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    let body;
+    if (items.length <= PREVIEW_N) {
+      body = escH(raw);
+    } else {
+      const head = items.slice(0, PREVIEW_N).join(', ');
+      const tail = items.slice(PREVIEW_N).join(', ');
+      const tid  = `tgt_${sectionKey}_${m.id}_${_tgtSeq++}`;
+      body = `${escH(head)}<span id="${tid}_tail" class="hidden">, ${escH(tail)}</span>
+        <button type="button"
+          onclick="event.stopPropagation(); toggleListTail('${tid}_tail', this, ${items.length})"
+          class="text-[10px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline decoration-dotted underline-offset-2 ml-1 align-middle">View all ${items.length} →</button>`;
+    }
+    return `<div class="text-sm font-mono text-slate-600 dark:text-slate-400 inline-flex items-center flex-wrap gap-y-0.5">${body}${editBtn}${overrideBadge}</div>`;
   };
 
   /* Desktop row (≥ lg) */
@@ -2557,6 +2577,16 @@ function renderDatePicker() {
   let m2y = m1y, m2m = m1m + 1;
   if (m2m > 11) { m2m -= 12; m2y += 1; }
 
+  /* Status hint — many users didn't realize they had to click twice for
+     a range. Surface what's expected next, plus an explicit Apply button
+     so a single date can be committed as a one-day range without a
+     second click. */
+  const hint = !PICKER.pendingStart
+    ? `<span class="text-slate-500 dark:text-slate-400">Pick a start date, then an end date — or click a preset on the left.</span>`
+    : `<span class="text-slate-700 dark:text-slate-200">Start: <strong>${fmtDateLabel(PICKER.pendingStart)}</strong> · click an end date <span class="text-slate-400">or</span></span>
+       <button type="button" onclick="event.stopPropagation(); applyPending()" class="dp-apply">Apply just this day</button>
+       <button type="button" onclick="event.stopPropagation(); clearPending()" class="dp-clear">Clear</button>`;
+
   popup.innerHTML = `
     <div class="dp-presets">
       ${PRESET_LIST.map(p => `
@@ -2566,11 +2596,35 @@ function renderDatePicker() {
         </button>`).join('')}
     </div>
     <div class="dp-cals">
+      <div class="dp-hint">${hint}</div>
       <div class="dp-cals-row">
         ${renderCalendar(m1y, m1m, true,  false)}
         ${renderCalendar(m2y, m2m, false, true )}
       </div>
     </div>`;
+}
+
+/* Commit the pending start as a single-day range. Lets users who just
+   want one specific day skip the "click twice" dance. */
+function applyPending() {
+  if (!PICKER.pendingStart) return;
+  APP.since = PICKER.pendingStart;
+  APP.until = PICKER.pendingStart;
+  APP.datePreset = 'custom';
+  updateDpTriggerLabel();
+  closeDatePicker();
+  if (APP.view === 'performance' && APP.campaigns.length > 0) {
+    APP.insights = {};
+    loadInsights();
+  } else {
+    loadData();
+  }
+}
+
+function clearPending() {
+  PICKER.pendingStart = null;
+  PICKER.hoverDate    = null;
+  renderDatePicker();
 }
 
 function renderCalendar(year, month, showPrev, showNext) {
