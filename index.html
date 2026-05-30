@@ -4041,6 +4041,12 @@ function init() {
     const cached = loadCache();
     if (cached && cached.date === todayStr()) {
       restoreFromCache(cached);
+      /* Sheet thresholds + setup rules can be edited any time, so always
+         re-fetch them on page load — even when Meta data is restored
+         from today's cache. Otherwise edits to CAC/ROAS/CTR targets sit
+         there ignored until tomorrow (when the Meta cache expires).
+         The gviz fetch is small (a few KB) and runs in the background. */
+      loadThresholdSheet().then(() => renderAll()).catch(() => {});
     } else {
       loadData();
     }
