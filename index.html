@@ -359,7 +359,7 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!--  ANALYSIS MODAL                                              -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="analysisModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
+<div id="analysisModal" class="hidden fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4">
   <div class="relative bg-white dark:bg-gray-900 shadow-2xl flex flex-col overflow-hidden
               w-full h-screen sm:h-auto
               max-w-none sm:max-w-xl
@@ -390,23 +390,28 @@
 <!--  Shows one KPI's compliant or non-compliant entity list, with  -->
 <!--  rows that drill into Planned vs Actual.                       -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="kpiDetailModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-end sm:items-center justify-center">
+<div id="kpiDetailModal" class="hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
   <div class="relative bg-white dark:bg-gray-900 shadow-2xl flex flex-col overflow-hidden
-              w-full h-[85vh] sm:h-auto
-              max-w-none sm:max-w-xl
-              max-h-[85vh] sm:max-h-[80vh]
+              w-full
+              h-[92vh] sm:h-auto
+              max-w-none sm:max-w-2xl
+              max-h-[92vh] sm:max-h-[88vh]
               rounded-t-2xl sm:rounded-2xl">
-    <div class="flex items-start justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
-      <div class="min-w-0 flex-1">
+    <!-- Drag handle indicator on mobile (visual cue this is a sheet) -->
+    <div class="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+      <span class="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+    </div>
+    <div class="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
+      <div class="min-w-0 flex-1 pr-3">
         <p id="kpiDetailKind" class="text-[10px] font-semibold uppercase tracking-widest mb-0.5"></p>
-        <h3 id="kpiDetailTitle" class="font-semibold text-sm sm:text-base leading-snug"></h3>
-        <p id="kpiDetailTarget" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5"></p>
+        <h3 id="kpiDetailTitle" class="font-semibold text-base sm:text-lg leading-snug truncate"></h3>
+        <p id="kpiDetailTarget" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1 break-words"></p>
       </div>
-      <button onclick="closeKpiDetail()" aria-label="Close" type="button" class="ml-2 w-10 h-10 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">
+      <button onclick="closeKpiDetail()" aria-label="Close" type="button" class="w-11 h-11 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition -mr-1">
         <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
       </button>
     </div>
-    <div id="kpiDetailContent" class="flex-1 overflow-y-auto px-3 py-3"></div>
+    <div id="kpiDetailContent" class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 sm:px-5 py-3 break-words"></div>
   </div>
 </div>
 
@@ -2153,12 +2158,18 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
     }
   }
 
+  /* DIV (not <button>) is intentional — the row contains inline
+     "View all" and "Raw API" buttons, and a <button> inside a <button>
+     is invalid HTML that browsers handle by silently dropping or
+     hoisting events, breaking the inner toggles. role="button" +
+     tabindex + keyboard handler keep accessibility. */
   return `
-    <button type="button"
-            onclick="event.stopPropagation(); openAnalysis('${item.id}')"
-            title="${escH(pctTip)}"
-            aria-label="${escH(pctTip)} — click to open Planned vs Actual"
-            class="w-full text-left flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-1 sm:gap-x-3 sm:gap-y-0 py-2 sm:py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 transition group min-h-[44px] sm:min-h-0">
+    <div role="button" tabindex="0"
+         onclick="openAnalysis('${item.id}')"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAnalysis('${item.id}')}"
+         title="${escH(pctTip)}"
+         aria-label="${escH(pctTip)} — click to open Planned vs Actual"
+         class="w-full text-left flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-1 sm:gap-x-3 sm:gap-y-0 py-2 sm:py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 transition group min-h-[44px] sm:min-h-0">
       <div class="flex items-center gap-2 sm:contents min-w-0 sm:min-w-0">
         <span class="text-xs font-medium text-slate-700 dark:text-slate-200 truncate flex-1 group-hover:text-slate-900 dark:group-hover:text-white" title="${escH(item.name)}">${escH(item.name)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 sm:hidden transition" aria-hidden="true">›</span>
@@ -2173,7 +2184,7 @@ function entityComplianceRow(item, type, contextMetric, contextKind) {
       </div>
       <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-300 text-sm leading-none shrink-0 hidden sm:inline transition" aria-hidden="true">›</span>
       ${compliantSubline}${mismatchHtml}
-    </button>`;
+    </div>`;
 }
 
 function complianceCellButton(sectionKey, metricId, count, kind) {
