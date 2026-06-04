@@ -386,6 +386,32 @@
 
 
 <!-- ══════════════════════════════════════════════════════════════ -->
+<!--  KPI DETAIL MODAL — opened from mobile tile clicks.            -->
+<!--  Shows one KPI's compliant or non-compliant entity list, with  -->
+<!--  rows that drill into Planned vs Actual.                       -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="kpiDetailModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-end sm:items-center justify-center">
+  <div class="relative bg-white dark:bg-gray-900 shadow-2xl flex flex-col overflow-hidden
+              w-full h-[85vh] sm:h-auto
+              max-w-none sm:max-w-xl
+              max-h-[85vh] sm:max-h-[80vh]
+              rounded-t-2xl sm:rounded-2xl">
+    <div class="flex items-start justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
+      <div class="min-w-0 flex-1">
+        <p id="kpiDetailKind" class="text-[10px] font-semibold uppercase tracking-widest mb-0.5"></p>
+        <h3 id="kpiDetailTitle" class="font-semibold text-sm sm:text-base leading-snug"></h3>
+        <p id="kpiDetailTarget" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5"></p>
+      </div>
+      <button onclick="closeKpiDetail()" aria-label="Close" type="button" class="ml-2 w-10 h-10 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition">
+        <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="kpiDetailContent" class="flex-1 overflow-y-auto px-3 py-3"></div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
 <!--  SCRIPTS                                                     -->
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!-- config.js (local, gitignored, may contain real creds) loads first.
@@ -856,15 +882,24 @@ function isPhase1(item) {
   return age !== null && age <= cutoff;
 }
 function thresholdsFor(item) {
-  const p1 = CONFIG.THRESHOLDS_PHASE1 || CONFIG.THRESHOLDS;
-  return (item && isPhase1(item)) ? p1 : CONFIG.THRESHOLDS;
+  /* Phase 1 is the only active threshold tier right now. End Goal stays
+     baked in CONFIG.THRESHOLDS for the future "next tier once Phase 1
+     is achieved" feature, but every entity is currently judged against
+     the (looser) Phase 1 thresholds regardless of age. */
+  return CONFIG.THRESHOLDS_PHASE1 || CONFIG.THRESHOLDS;
 }
 /* Aggregate target label for the matrix column (no specific entity):
    shows "P1 → Final" when the two differ, single value when equal. */
 function dualTarget(key, fmt) {
-  const fn = CONFIG.THRESHOLDS?.[key];
-  const p1 = (CONFIG.THRESHOLDS_PHASE1 || {})[key] ?? fn;
-  return (p1 === fn) ? fmt(fn) : `${fmt(p1)} → ${fmt(fn)}`;
+  /* Display ONLY the Phase 1 threshold. End Goal stays in CONFIG so we
+     can re-enable a "next tier" display later (e.g. once an entity
+     achieves Phase 1, surface the End Goal it should aim for) — but
+     until then, the dashboard's target column shows one number, not
+     "Phase 1 → End Goal". Keeps the matrix readable and removes the
+     ambiguity of which threshold the verdict was actually computed
+     against. */
+  const p1 = (CONFIG.THRESHOLDS_PHASE1 || {})[key] ?? CONFIG.THRESHOLDS?.[key];
+  return fmt(p1);
 }
 
 /* ── RFC-4180-style CSV parser ─────────────────────────────────
@@ -1376,11 +1411,13 @@ function _parseAgeTarget(target) {
 
 const SETUP_HANDLERS = {
   age: {
-    /* Compliance rule: strict equality with the sheet target. If sheet
-       says 25-54 and the API returns anything else, the ad set is
-       non-compliant — including a "broader" range like 22-65, which
-       also serves to ages outside the desired slab (22-24 and 55-65)
-       and so doesn't match the spec. Exact match only. */
+    /* Compliance rule: target ages must be REACHABLE within the ad set's
+       actual targeting (Meta UI's "suggested age" approach). If sheet
+       says 25-54 and API returns 22-65, the desired ages (25-54) are
+       all served — that counts as compliant. Only fails when the actual
+       range is NARROWER than the target so some target ages get missed.
+       Policy floors like "min 22 due to Custom Audience" stop being
+       false-negatives under this rule. */
     evaluate(item, target) {
       const t = item.targeting || {};
       const want = _parseAgeTarget(target);
@@ -1388,22 +1425,24 @@ const SETUP_HANDLERS = {
         if (t.age_min == null && t.age_max == null) return 'na';
         return (t.age_min === 18 && t.age_max === 65) ? 'fail' : 'pass';
       }
-      return (t.age_min === want.min && t.age_max === want.max) ? 'pass' : 'fail';
+      const lo = t.age_min == null ? 13 : t.age_min;  /* Meta's absolute floor */
+      const hi = t.age_max == null ? 65 : t.age_max;  /* Meta's open-ended max */
+      return (lo <= want.min && hi >= want.max) ? 'pass' : 'fail';
     },
-    actual(item) {
+    actual(item, target) {
       const t = item.targeting || {};
       if (t.age_min == null && t.age_max == null) return '(no age set in API)';
       const lo = t.age_min == null ? '?' : t.age_min;
       const hi = t.age_max == null ? '?' : t.age_max;
-      return `${lo} - ${hi}`;
+      const base = `${lo} - ${hi}`;
+      const want = _parseAgeTarget(target);
+      if (want && typeof t.age_min === 'number' && t.age_min < want.min) {
+        return `${base} (min ${t.age_min} is a policy floor; covers target ${want.min}–${want.max})`;
+      }
+      return base;
     },
-    /* Only called when evaluate() returned 'fail'. Names every way the
-       actual range diverges from the target so the user knows exactly
-       what to change in Meta:
-         - min below target  → often a Custom Audience policy floor
-         - min above target  → missing the lower age band
-         - max above target  → over-broad (extra older ages)
-         - max below target  → missing the upper age band */
+    /* Only called when evaluate() returned 'fail' — i.e. the actual
+       range is NARROWER than the target so target ages get missed. */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
       if (t.age_min == null && t.age_max == null) {
@@ -1414,13 +1453,11 @@ const SETUP_HANDLERS = {
       const hi = t.age_max == null ? '?' : t.age_max;
       const want = _parseAgeTarget(target);
       const reasons = [];
-      if (want && typeof t.age_min === 'number') {
-        if (t.age_min < want.min) reasons.push(`min ${t.age_min} is below target ${want.min} (often a Custom Audience policy floor)`);
-        else if (t.age_min > want.min) reasons.push(`missing ages ${want.min}–${t.age_min - 1}`);
+      if (want && typeof t.age_min === 'number' && t.age_min > want.min) {
+        reasons.push(`missing ages ${want.min}–${t.age_min - 1}`);
       }
-      if (want && typeof t.age_max === 'number') {
-        if (t.age_max > want.max) reasons.push(`max ${t.age_max} is above target ${want.max}`);
-        else if (t.age_max < want.max) reasons.push(`missing ages ${t.age_max + 1}–${want.max}`);
+      if (want && typeof t.age_max === 'number' && t.age_max < want.max) {
+        reasons.push(`missing ages ${t.age_max + 1}–${want.max}`);
       }
       const issue = reasons.length ? ` — ${reasons.join(', ')}` : '';
       const tgt = target ? ` (target ${target})` : '';
@@ -1452,7 +1489,7 @@ const SETUP_HANDLERS = {
     evaluate(item, target) {
       const t = item.targeting || {};
       const exc = _flattenGeo(t.excluded_geo_locations);
-      if (exc.length > 0) return 'fail';
+      if (exc.length > 0) return 'fail';   /* any exclusion auto-fails */
       const allowed = new Set(
         String(target || '').split(/[\n,]/)
           .map(s => s.trim().toLowerCase()).filter(Boolean)
@@ -1461,7 +1498,12 @@ const SETUP_HANDLERS = {
       const targeted = _flattenGeo(t.geo_locations).map(n =>
         n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
       if (targeted.length === 0) return 'fail';
-      return targeted.every(n => allowed.has(n)) ? 'pass' : 'fail';
+      /* Pass if at least ONE targeted location is on the allow-list.
+         Previous semantics ("every targeted in allow-list") was too
+         strict — ad sets that also target a neighbouring small town
+         not on the sheet's primary list were failing even though they
+         cover the main allowed cities. */
+      return targeted.some(n => allowed.has(n)) ? 'pass' : 'fail';
     },
     actual(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
@@ -1476,9 +1518,11 @@ const SETUP_HANDLERS = {
       const excPart = exc.length ? ` · ⚠ Excl ${exc.length}` : '';
       return incPart + excPart;
     },
-    /* Surfaces the *exact* problem: the excluded cities (which auto-fail
-       the KPI), OR included cities that aren't on the sheet's allow-list,
-       OR "no location set". This is the headline of this whole feature. */
+    /* With the "any allowed location passes" rule, the only fail modes
+       are: (a) an exclusion exists, (b) no location is set, or (c) zero
+       of the targeted locations match the allow-list. We never name
+       "partial" misses anymore — picking up at least one allowed city
+       is enough to pass. */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
       const exc = _flattenGeo(t.excluded_geo_locations);
@@ -1492,8 +1536,8 @@ const SETUP_HANDLERS = {
       );
       if (allowed.size === 0) return `Targets: ${_listPreview(targeted)}`;
       const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
-      const bad = targeted.filter((_, i) => !allowed.has(cleaned[i]));
-      if (bad.length) return `Not in allowed list: ${_listPreview(bad)}`;
+      const anyMatch = cleaned.some(n => allowed.has(n));
+      if (!anyMatch) return `None of the targeted locations are on the allow-list: ${_listPreview(targeted)}`;
       return 'Mismatch';
     },
     /* Same data as mismatchDetail but as structured items so the renderer
@@ -1511,8 +1555,8 @@ const SETUP_HANDLERS = {
       );
       if (allowed.size === 0) return { prefix: 'Targets', items: targeted };
       const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
-      const bad = targeted.filter((_, i) => !allowed.has(cleaned[i]));
-      if (bad.length) return { prefix: 'Not in allowed list', items: bad };
+      const anyMatch = cleaned.some(n => allowed.has(n));
+      if (!anyMatch) return { prefix: 'None on allow-list — targeted', items: targeted };
       return null;
     },
     details(item) {
@@ -2162,6 +2206,65 @@ function toggleCell(sectionKey, metricId, kind) {
   renderHierarchy();
 }
 
+/* Open the KPI Detail sheet modal — used by mobile tiles. Shows one
+   KPI's entity list (compliant or non-compliant) so users can drill in
+   without the desktop matrix's wide table. Tapping an entity in the
+   list still opens the existing Planned vs Actual modal. */
+function openKpiDetail(sectionKey, metricId, kind) {
+  const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
+  const m = metrics.find(x => x.id === metricId);
+  if (!m) return;
+
+  /* Section key matches what renderMatrixSection passes — derive the
+     entity set the same way that section did. */
+  let items;
+  let type;
+  if (sectionKey.includes('campaign')) {
+    items = APP.searchQuery
+      ? APP.campaigns.filter(c => c.name?.toLowerCase().includes(APP.searchQuery.toLowerCase()))
+      : APP.campaigns;
+    type = 'campaign';
+  } else {
+    items = APP.searchQuery
+      ? APP.adsets.filter(a => a.name?.toLowerCase().includes(APP.searchQuery.toLowerCase()))
+      : APP.adsets;
+    type = 'adset';
+  }
+  if (!APP.showPaused) {
+    items = items.filter(isLive);
+  }
+
+  const matching = items.filter(it => evalForRow(it, m, type) === kind);
+  const kindLabel = kind === 'pass' ? 'Compliant' : 'Non-Compliant';
+  const kindCls = kind === 'pass'
+    ? 'text-emerald-700 dark:text-emerald-400'
+    : 'text-rose-700 dark:text-rose-400';
+  const target = typeof m.target === 'function' ? m.target() : '';
+
+  document.getElementById('kpiDetailKind').className =
+    `text-[10px] font-semibold uppercase tracking-widest mb-0.5 ${kindCls}`;
+  document.getElementById('kpiDetailKind').textContent =
+    `${kindLabel} · ${matching.length} item${matching.length === 1 ? '' : 's'}`;
+  document.getElementById('kpiDetailTitle').textContent = m.label;
+  document.getElementById('kpiDetailTarget').textContent = target ? `Target: ${target}` : '';
+
+  const content = matching.length === 0
+    ? `<p class="text-xs text-slate-400 italic py-6 text-center">No items.</p>`
+    : matching.map(it => entityComplianceRow(it, type, m, kind)).join('');
+  document.getElementById('kpiDetailContent').innerHTML = `
+    <div class="space-y-0.5">${content}</div>`;
+
+  const modal = document.getElementById('kpiDetailModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function closeKpiDetail() {
+  const modal = document.getElementById('kpiDetailModal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
 function renderMatrixSection(title, subtitle, items, type, sectionKey) {
   const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
   const tabLabel = APP.view === 'performance' ? 'Performance' : 'Setup';
@@ -2254,33 +2357,54 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
         </td>
       </tr>`).join('');
 
-  /* Mobile card (< lg) — each KPI is its own card with stacked
-     Compliant + Non-Compliant chips. No horizontal scroll. */
-  /* Each card lists the same four columns as the desktop table —
-     KPI → Target Goal → Compliant → Non-Compliant — stacked
-     vertically with the same uppercase column-label styling, so
-     mobile users follow the exact same reading order as desktop. */
-  const mobileCards = rowsData.map(d => `
-      <article class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 divide-y divide-slate-200/40 dark:divide-slate-700/30">
-        <div class="px-4 py-3">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">KPI</div>
-          <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">${d.m.label}</div>
+  /* Mobile (< lg) — KPI tile grid. Each tile is small enough that the
+     full matrix fits one screen at-a-glance: KPI label + target +
+     compliant chip + non-compliant chip. Tapping a chip opens a sheet
+     modal listing the entities, where tapping any entity drills into
+     Planned vs Actual. The old vertical-card stack required ~3 screens
+     of scrolling for 7 KPIs and made it hard to compare KPIs side-by-side. */
+  const targetTextOnly = (m) => {
+    /* Stripped-down target string for the tile (no edit pencil — full
+       editing UI lives in the popup detail). */
+    const raw = String(m.target() == null ? '' : m.target());
+    const items = raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    if (items.length <= 2) return escH(raw);
+    return escH(items.slice(0, 2).join(', ') + ` +${items.length - 2}`);
+  };
+  const mobileTiles = rowsData.map(d => {
+    const cP = d.compliant.length, cF = d.nonCompliant.length;
+    const passDis = cP === 0;
+    const failDis = cF === 0;
+    return `
+      <article class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-3 flex flex-col gap-2">
+        <div>
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-0.5 truncate">${escH(d.m.label)}</div>
+          <div class="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">${targetTextOnly(d.m)}</div>
         </div>
-        <div class="px-4 py-3">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Target Goal</div>
-          <div class="text-xs font-mono text-slate-600 dark:text-slate-400 break-words">${targetGoalHtml(d.m)}</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button type="button"
+            onclick="openKpiDetail('${sectionKey}','${d.m.id}','pass')"
+            ${passDis ? 'disabled' : ''}
+            class="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition
+              ${passDis
+                ? 'bg-slate-100 dark:bg-slate-700/30 text-slate-300 dark:text-slate-600 cursor-default'
+                : 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'}">
+            <span class="w-1.5 h-1.5 rounded-full ${passDis ? 'bg-slate-300 dark:bg-slate-600' : 'bg-emerald-500'}"></span>
+            ${cP} pass
+          </button>
+          <button type="button"
+            onclick="openKpiDetail('${sectionKey}','${d.m.id}','fail')"
+            ${failDis ? 'disabled' : ''}
+            class="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition
+              ${failDis
+                ? 'bg-slate-100 dark:bg-slate-700/30 text-slate-300 dark:text-slate-600 cursor-default'
+                : 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400'}">
+            <span class="w-1.5 h-1.5 rounded-full ${failDis ? 'bg-slate-300 dark:bg-slate-600' : 'bg-rose-500'}"></span>
+            ${cF} fail
+          </button>
         </div>
-        <div class="px-4 py-3">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400/80 mb-1.5">Compliant</div>
-          <div>${complianceCellButton(sectionKey, d.m.id, d.compliant.length, 'pass')}</div>
-          ${entityListPanel(d.compliant, 'pass', d.m, d.expC)}
-        </div>
-        <div class="px-4 py-3">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400/80 mb-1.5">Non-Compliant</div>
-          <div>${complianceCellButton(sectionKey, d.m.id, d.nonCompliant.length, 'fail')}</div>
-          ${entityListPanel(d.nonCompliant, 'fail', d.m, d.expN)}
-        </div>
-      </article>`).join('');
+      </article>`;
+  }).join('');
 
   return `
     <section>
@@ -2292,8 +2416,9 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
         <p class="text-[11px] text-slate-400 dark:text-slate-500 italic sm:ml-auto hidden sm:block">↳ Click any name to open Planned vs Actual</p>
       </div>
 
-      <!-- Mobile: vertical card stack (< lg) -->
-      <div class="lg:hidden space-y-3">${mobileCards}</div>
+      <!-- Mobile: tile grid (< lg) — compact at-a-glance KPI matrix.
+           Tap a count button to open the entity list in a sheet modal. -->
+      <div class="lg:hidden grid grid-cols-2 gap-2.5">${mobileTiles}</div>
 
       <!-- Desktop: matrix table (≥ lg) -->
       <div class="hidden lg:block rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
@@ -2495,6 +2620,57 @@ function renderDelivery() {
   };
   const ORDER = ['active','learning','inactive','completed'];
 
+  /* ── LIVE OVERVIEW — single highlight card at the top.
+     "Live" = Active + Learning (currently delivering ad sets, excludes
+     paused/inactive and completed). Pulls total spend, impressions, and
+     conversions across those ad sets so the user sees what's burning
+     right now without having to open the Performance tab.
+
+     Spend uses CAMPAIGN-level insights to avoid double-counting; the
+     per-ad-set spend in the rows below uses ad-set-level insights. */
+  const liveAdsets = [...buckets.active, ...buckets.learning];
+  const liveCampIds = new Set(liveAdsets.map(a => a.campaign_id));
+  const liveTotalSpend = APP.campaigns
+    .filter(c => liveCampIds.has(c.id))
+    .reduce((s, c) => s + parseFloat(APP.insights[c.id]?.spend || 0), 0);
+  const liveTotalImpr = liveAdsets.reduce(
+    (s, a) => s + parseInt(APP.insights[a.id]?.impressions || 0, 10), 0);
+  const liveTotalConv = liveAdsets.reduce(
+    (s, a) => s + parseConversions(APP.insights[a.id]?.actions), 0);
+  const overview = `
+    <div class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">Live Overview</span>
+        <span class="text-[10px] text-slate-400 dark:text-slate-500 ml-1">Active + Learning ad sets in the selected range</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Live Ad Sets</div>
+          <div class="text-2xl font-semibold text-emerald-700 dark:text-emerald-400 mt-0.5">${liveAdsets.length}<span class="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">/ ${adsets.length}</span></div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">across ${liveCampIds.size} campaign${liveCampIds.size === 1 ? '' : 's'}</div>
+        </div>
+        <div>
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Spend</div>
+          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100 mt-0.5 font-mono">${liveTotalSpend > 0 ? '₹' + liveTotalSpend.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}</div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">in selected range</div>
+        </div>
+        <div>
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Impressions</div>
+          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100 mt-0.5">${liveTotalImpr > 0 ? liveTotalImpr.toLocaleString('en-IN') : '—'}</div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">from live ad sets</div>
+        </div>
+        <div>
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Conversions</div>
+          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100 mt-0.5">${liveTotalConv > 0 ? liveTotalConv.toLocaleString('en-IN') : '—'}</div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">from live ad sets</div>
+        </div>
+      </div>
+    </div>`;
+
   /* ── Summary stat cards: BIG number = ad sets, footnote = campaigns ── */
   const summary = `
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -2511,12 +2687,14 @@ function renderDelivery() {
     </div>`;
 
   /* ── Per-ad-set row (clickable → opens Planned vs Actual).
-     No Phase-1/Final tag here — that's a threshold tier (internal
-     target benchmark), not a delivery status, and showing it next
-     to delivery buckets created confusion. The tier is still visible
-     in the modal's scorecard where it belongs. ── */
+     Now shows the ad set's spend in the date range so the user can
+     see at a glance which ad sets are burning the most. ── */
   const adsetRow = (a, k) => {
     const campName = campNameById[a.campaign_id] || '';
+    const spend = parseFloat(APP.insights[a.id]?.spend || 0);
+    const spendStr = spend > 0
+      ? `₹${spend.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+      : '<span class="text-slate-300 dark:text-slate-600">—</span>';
     return `
       <button type="button" onclick="openAnalysis('${a.id}')"
         title="${escH(a.name)}${campName ? ' · in ' + escH(campName) : ''}"
@@ -2526,6 +2704,7 @@ function renderDelivery() {
           <div class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white">${escH(a.name)}</div>
           ${campName ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">in ${escH(campName)}</div>` : ''}
         </div>
+        <span class="text-[11px] font-mono font-semibold text-slate-600 dark:text-slate-300 shrink-0 w-20 text-right">${spendStr}</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden sm:block">${launchDateLabel(a)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 text-sm shrink-0" aria-hidden="true">›</span>
       </button>`;
@@ -2564,6 +2743,7 @@ function renderDelivery() {
 
   host.innerHTML = `
     <div class="space-y-5">
+      ${overview}
       ${summary}
       ${learningNote}
       ${ORDER.map(section).join('')}
@@ -3534,9 +3714,20 @@ function openAnalysis(id) {
                    :                '#f43f5e';
   const ringDash   = pct === null ? 0 : Math.round((pct / 100) * 144);
 
+  /* Parent campaign breadcrumb on ad-set modals — saves the user a
+     trip back to the table to remember which campaign this ad set
+     belongs to. */
+  const parentCampName = !isCamp
+    ? (APP.campaigns.find(c => c.id === item.campaign_id)?.name || '')
+    : '';
+  const parentLine = parentCampName
+    ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">in <span class="font-medium text-slate-600 dark:text-slate-300">${escH(parentCampName)}</span></div>`
+    : '';
   document.getElementById('analysisTitle').innerHTML = `
-    ${escH(item.name)}
-    <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500">${_entityKind(item)} · ${APP.view}</span>`;
+    <div>${escH(item.name)}
+      <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500">${_entityKind(item)} · ${APP.view}</span>
+    </div>
+    ${parentLine}`;
 
   /* ── Section helpers ── */
   const sectionHead = (n, label) => `
@@ -4097,6 +4288,14 @@ function init() {
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && PICKER.open) closeDatePicker();
+    if (e.key === 'Escape') {
+      const kpiM = document.getElementById('kpiDetailModal');
+      if (kpiM && !kpiM.classList.contains('hidden')) closeKpiDetail();
+    }
+  });
+  /* KPI Detail sheet — close on backdrop tap. */
+  document.getElementById('kpiDetailModal').addEventListener('click', e => {
+    if (e.target.id === 'kpiDetailModal') closeKpiDetail();
   });
 
   /* Account pill */
