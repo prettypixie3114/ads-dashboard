@@ -99,13 +99,14 @@
     <button id="setupTab"    class="view-tab active" onclick="switchView('setup')">Setup</button>
     <button id="perfTab"     class="view-tab"        onclick="switchView('performance')">Performance</button>
     <button id="deliveryTab" class="view-tab"        onclick="switchView('delivery')">Delivery</button>
+    <button id="guideTab"    class="view-tab"        onclick="switchView('guide')">How to Use</button>
   </div>
 </div>
 
 <main class="px-3 sm:px-5 py-4 sm:py-5 max-w-screen-2xl mx-auto space-y-5">
 
   <!-- ── Search + filter toggles + Export ── -->
-  <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+  <div id="toolbarRow" class="flex flex-wrap items-center gap-2 sm:gap-3">
     <!-- Search: full-width on phone, fixed at sm:; text-base prevents iOS focus zoom -->
     <div class="relative w-full sm:w-auto sm:flex-1 sm:max-w-md">
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-3.5 sm:h-3.5 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
@@ -2833,10 +2834,360 @@ function renderDelivery() {
     </div>`;
 }
 
+/* ══════════════════════════════════════════════════════════════ */
+/*  GUIDE TAB — user-facing how-to-use documentation             */
+/* ══════════════════════════════════════════════════════════════ */
+function renderGuide() {
+  const host = document.getElementById('hierarchyHost');
+  if (!host) return;
+
+  /* Toolbar (search / show-paused / export) and date picker aren't
+     relevant on the Guide tab — hide them while it's active. */
+  const tb = document.getElementById('toolbarRow');
+  if (tb) tb.classList.add('hidden');
+  const dp = document.getElementById('dpTrigger');
+  if (dp) dp.classList.add('invisible');
+  const matrixScope = document.getElementById('matrixScope');
+  if (matrixScope) matrixScope.textContent = '';
+
+  /* Small UI primitives reused below. */
+  const sec = (icon, title, body) => `
+    <section class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-5 sm:p-6">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center text-base">${icon}</span>
+        <h2 class="text-base sm:text-lg font-semibold text-slate-800 dark:text-slate-100">${title}</h2>
+      </div>
+      <div class="prose-guide text-sm leading-relaxed text-slate-600 dark:text-slate-300 space-y-3">${body}</div>
+    </section>`;
+
+  const kpiCard = (name, what, target, red, yellow, green, why, action) => `
+    <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/40 p-4">
+      <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">${name}</div>
+      <div class="grid sm:grid-cols-2 gap-3 text-[12px] leading-relaxed">
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-0.5">What it measures</div>
+          <div class="text-slate-600 dark:text-slate-300">${what}</div>
+        </div>
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-0.5">Target</div>
+          <div class="text-slate-600 dark:text-slate-300">${target}</div>
+        </div>
+      </div>
+      <div class="mt-3 grid sm:grid-cols-3 gap-1.5 text-[11px]">
+        <div class="rounded bg-rose-50 dark:bg-rose-500/10 border border-rose-200/60 dark:border-rose-500/20 px-2 py-1.5">
+          <div class="text-[9px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">Red — Action</div>
+          <div class="text-slate-700 dark:text-slate-300 mt-0.5">${red}</div>
+        </div>
+        <div class="rounded bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 px-2 py-1.5">
+          <div class="text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">Yellow — Watch</div>
+          <div class="text-slate-700 dark:text-slate-300 mt-0.5">${yellow}</div>
+        </div>
+        <div class="rounded bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200/60 dark:border-emerald-500/20 px-2 py-1.5">
+          <div class="text-[9px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Green — Healthy</div>
+          <div class="text-slate-700 dark:text-slate-300 mt-0.5">${green}</div>
+        </div>
+      </div>
+      <div class="mt-3 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-0.5">Why it matters</div>
+        ${why}
+      </div>
+      <div class="mt-2 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-0.5">When to act</div>
+        ${action}
+      </div>
+    </div>`;
+
+  host.innerHTML = `
+    <div class="space-y-5 max-w-4xl mx-auto pb-12">
+
+      <!-- ── HERO ── -->
+      <section class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-6 sm:p-8">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-2">User Guide</div>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100 mb-3">How to Use This Dashboard</h1>
+        <p class="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
+          This dashboard pulls live data from your Meta Ads account, joins it with the targets you set in your Google Sheet, and tells you which campaigns and ad sets are on track and which need attention. This guide walks you through every tab, every number, and the colors you'll see — so you know exactly what to do when something turns red.
+        </p>
+        <div class="mt-4 text-[11px] text-slate-500 dark:text-slate-400">
+          5-minute read · Bookmark this tab and come back any time
+        </div>
+      </section>
+
+      ${sec('🧭', 'The four tabs at a glance', `
+        <ul class="space-y-2 list-none pl-0">
+          <li><strong class="text-slate-800 dark:text-slate-100">Setup</strong> — "Did I configure my ad sets correctly?" Checks targeting (age, gender, location, interests, placements, device, audience type) against your sheet's allow-list. Issues here mean you set up an ad set wrong; fix them in Meta Ads Manager.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Performance</strong> — "Is my spend producing results?" CTR, CAC, ROAS, conversions, bounce rate. Issues here mean an ad is running but losing money; pause it or tune it.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Delivery</strong> — "What's actually running right now?" Live ad-set count, status (active / learning / inactive), and ad sets grouped by age (last 7 days, 7–30 days, etc.) with spend per group.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">How to Use</strong> — This guide.</li>
+        </ul>
+        <p class="text-[12px] italic text-slate-500 dark:text-slate-400 pt-2">Workflow tip: scan Performance first thing each morning (where is money leaking?), then check Setup weekly (are new ad sets configured right?), and use Delivery whenever you want to know what's running.</p>
+      `)}
+
+      ${sec('🎨', 'Color codes — what red / yellow / green mean everywhere', `
+        <p>Every percentage, dot, and chip on the dashboard uses the same color rule, so you can read it the same way no matter what section you're in.</p>
+        <div class="grid sm:grid-cols-3 gap-2 mt-3">
+          <div class="rounded-lg border border-rose-200/60 dark:border-rose-500/20 bg-rose-50/60 dark:bg-rose-500/[0.05] p-3">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
+              <strong class="text-rose-700 dark:text-rose-400 text-sm">Red — 0 to 49%</strong>
+            </div>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">Most KPIs are failing. <strong>Take action today</strong> — either pause underperformers or fix the configuration. Letting it stay red means burning budget on something broken.</p>
+          </div>
+          <div class="rounded-lg border border-amber-200/60 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/[0.05] p-3">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <strong class="text-amber-700 dark:text-amber-400 text-sm">Yellow — 50 to 79%</strong>
+            </div>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">Some KPIs are passing, some failing. <strong>Watch closely.</strong> Open the entity and look at the specific Non-Compliant rows to see what's off. Could swing either way in the next 48 hours.</p>
+          </div>
+          <div class="rounded-lg border border-emerald-200/60 dark:border-emerald-500/20 bg-emerald-50/60 dark:bg-emerald-500/[0.05] p-3">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              <strong class="text-emerald-700 dark:text-emerald-400 text-sm">Green — 80% or above</strong>
+            </div>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">Healthy. Leave it alone, let it spend, scale budget if ROAS is strong. Don't fix what isn't broken.</p>
+          </div>
+        </div>
+        <p class="pt-3"><strong>The percentage is always:</strong> (KPIs passing) ÷ (KPIs applicable). So a campaign with 7 KPIs where 5 pass scores <strong>71%</strong> (yellow). A campaign where Meta hasn't returned data yet scores "—" (gray bar — no data).</p>
+        <p><strong>Delivery dots</strong> use a slightly different color scheme because they represent <em>status</em>, not compliance: 🟢 emerald = Active, 🟡 amber = Learning, ⚫ slate = Inactive (paused/archived).</p>
+      `)}
+
+      ${sec('📊', 'Performance KPIs — every metric explained', `
+        <p>The Performance tab evaluates each campaign and ad set against six numeric thresholds. Targets come from your Google Sheet (Threshold tab), so changing them there changes them here on the next page load.</p>
+        <div class="space-y-3 mt-3">
+          ${kpiCard(
+            'CTR — Click-Through Rate',
+            'Of everyone who saw your ad, what % clicked? Calculated as <span class="font-mono">total clicks ÷ impressions × 100</span>.',
+            'Higher is better. Sheet sets the minimum; default fallback is ≥ 8% for Phase 1.',
+            'CTR < 50% of target. Creative isn\'t hooking anyone. Swap the visual or test new copy.',
+            'CTR between 50% and 100% of target. Ad is OK but not great. Could improve with better thumbnail or headline.',
+            'CTR ≥ target. People are clicking. Don\'t change the creative; let it scale.',
+            'Low CTR means you\'re paying impressions for ads nobody wants to click. Wastes budget AND hurts ad relevance score (Meta charges you more for low-relevance ads).',
+            'CTR < target for 3+ days on an ad set that\'s out of Learning → pause and test a new creative variant. Don\'t add budget to a low-CTR ad set; you\'re just buying more bad impressions.'
+          )}
+          ${kpiCard(
+            'CAC — Cost per Conversion',
+            'How much you spent to get one conversion (purchase / lead / signup, depending on campaign objective). Lower is better.',
+            'Sheet sets the maximum. Phase 1 default fallback is ≤ ₹2100.',
+            'CAC > 2× target. You\'re paying way too much per result. Pause and rebuild the audience or creative.',
+            'CAC between 1× and 2× target. Optimization may bring it down; give Meta\'s algorithm 2–3 more days.',
+            'CAC ≤ target. Each conversion is profitable. Scale spend in 20% increments and watch CAC.',
+            'CAC is the single most important profitability metric. If CAC > average order value, you\'re losing money on every sale.',
+            'If CAC stays above target after 3 days past Learning phase, the ad set isn\'t finding the right audience. Pause and clone with a different interest stack.'
+          )}
+          ${kpiCard(
+            'ROAS — Return on Ad Spend',
+            'Revenue earned per ₹1 of spend. 3× ROAS means ₹1 spent returned ₹3 revenue.',
+            'Sheet sets the minimum. Phase 1 default fallback is ≥ 2×.',
+            'ROAS < 50% of target (e.g. < 1× when target is 2×). Bleeding cash; pause immediately.',
+            'ROAS between 50% and 100% of target. Marginal; tighten audience or test better creative.',
+            'ROAS ≥ target. Profitable. Scale budget by 20% and re-check in 3 days.',
+            'Different from CAC because it accounts for AOV (average order value). High-AOV products can absorb higher CAC and still be profitable; ROAS catches that.',
+            'ROAS dropping for 5+ days while spend is increasing → you\'ve hit audience saturation. Pause, take a week off, then re-launch.'
+          )}
+          ${kpiCard(
+            'Conversion Rate',
+            'Of people who clicked your ad, what % converted? <span class="font-mono">conversions ÷ clicks × 100</span>.',
+            'Higher is better. Sheet sets minimum. Phase 1 default fallback is ≥ 0.9%.',
+            'CVR < 50% of target. Either the landing page is broken or the audience is way off.',
+            'CVR between 50% and 100% of target. Landing page A/B test or audience refinement.',
+            'CVR ≥ target. The funnel is working. Don\'t touch the landing page; scale traffic.',
+            'CVR is the bridge between ad performance (CTR) and revenue (ROAS). Low CVR with high CTR means the landing page is failing.',
+            'If CTR is healthy (people click) but CVR is in the red (nobody buys), the problem is on the landing page — broken cart, slow load, mismatched offer. Fix the page before touching the ad.'
+          )}
+          ${kpiCard(
+            'Budget (Campaign Level)',
+            'Daily budget you\'ve assigned to the campaign in Meta. Higher means Meta has more room to find buyers.',
+            'Sheet sets the minimum. Phase 1 default fallback is ≥ ₹100/day.',
+            'Below minimum. Meta\'s learning algorithm needs floor spend to optimize; under-budget = poor delivery.',
+            'At or near minimum. Increase to give more headroom.',
+            'Above minimum. Meta has room to test audiences and find your buyers efficiently.',
+            'Meta\'s machine learning needs ~50 conversions per ad set per week to exit Learning. If daily budget is too low to hit that, the ad set never optimizes.',
+            'If Budget is red, raise the daily cap in Meta. If it\'s green but CAC is also red, you\'ve given Meta enough money but the audience is wrong.'
+          )}
+          ${kpiCard(
+            'Conversions Generated',
+            'How many conversions an ad set produced in the selected date range. Pass = at least one conversion when there\'s any spend.',
+            'Pass = at least 1 conversion when spend > 0.',
+            'Spent money, got zero conversions. Pause now.',
+            '(Not applicable — this KPI is binary: any conversion is pass.)',
+            'At least one conversion. Keep monitoring CAC and ROAS to see if it\'s profitable.',
+            'Zero conversions despite spend means the funnel is fundamentally broken. Could be tracking (Pixel not firing), creative (wrong audience), or landing page.',
+            'Check the Pixel first (Meta Events Manager → Test events). If Pixel fires when you click your own ad, the issue is creative or audience.'
+          )}
+          ${kpiCard(
+            'Bounce Rate (GA4)',
+            'Of sessions from your ads, what % bounced (left without engaging). Lower is better. Sourced from Google Analytics 4 by campaign name.',
+            'Sheet sets the maximum. Default fallback ≤ 70% Phase 1.',
+            'Bounce rate above target. Landing page mismatch — visitors arrive and leave instantly.',
+            'Near target. Improve landing page speed and above-the-fold relevance.',
+            'Below target. Visitors engage with the page; ad-to-page promise is consistent.',
+            'High bounce rate sabotages every metric below it (CVR, CAC, ROAS). Cheapest fix in the funnel — usually a page-speed or offer-mismatch tweak.',
+            'If Bounce Rate is red AND CVR is red, fix the landing page before tweaking ads. If Bounce is green but CVR is red, the page works for engagement but not conversion (offer / pricing issue).'
+          )}
+        </div>
+      `)}
+
+      ${sec('🎯', 'Setup KPIs — making sure ad sets are configured right', `
+        <p>The Setup tab checks each ad set's targeting against the values you've defined in the Google Sheet's <strong>Setup tab</strong>. These are configuration checks, not performance checks — they tell you whether the ad set is even <em>set up</em> the way you intended.</p>
+        <ul class="space-y-2 list-none pl-0 mt-3">
+          <li><strong class="text-slate-800 dark:text-slate-100">Age</strong> — Passes if the API's age range <em>covers</em> the sheet target. So target 25–54 with actual 22–65 passes (the desired ages are reached). A note "min 22 is a policy floor" appears when a Custom Audience source forces a lower minimum.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Gender</strong> — Strict match. Target "Female" → ad set must target Women only.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Location Included</strong> — Passes if at least one targeted city is on your sheet's allow-list AND there are no exclusions. Any exclusion auto-fails.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Location Excluded</strong> — Passes when no locations are excluded.</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Placement</strong> — Composes from Meta's <em>positions</em> arrays (so "Facebook Feed" not just "facebook"). Match is exact against the sheet (handles "&", "and", "/" as separators).</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Device</strong> — Strict match (Mobile / Desktop / both).</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Audience Type</strong> — Passes if the ad set has any custom audience, lookalike, detailed targeting, or Advantage+ enabled. Fails for "Broad only".</li>
+          <li><strong class="text-slate-800 dark:text-slate-100">Interests</strong> — Passes if any interests/behaviors are configured (broad targeting fails).</li>
+        </ul>
+        <p class="pt-2"><strong>Campaign-level Setup compliance</strong> is rolled up from child ad sets: a campaign passes a KPI if the majority of its active ad sets pass that KPI.</p>
+      `)}
+
+      ${sec('🚦', 'Reading the matrix: KPI / Target / Compliant / Non-Compliant', `
+        <p>Every Setup and Performance section is the same 4-column matrix:</p>
+        <ol class="space-y-2 pl-5">
+          <li><strong>KPI</strong> — the metric name.</li>
+          <li><strong>Target Goal</strong> — the value from your sheet (admin can edit inline by clicking the pencil).</li>
+          <li><strong>Compliant</strong> — green number of entities passing. Tap to expand the list of pass entities.</li>
+          <li><strong>Non-Compliant</strong> — red number of entities failing. Tap to expand. Each row in the expanded list shows the entity's compliance bar + a <span class="text-rose-600 dark:text-rose-400">⚠ "mismatch detail"</span> explaining exactly why it failed (e.g. "missing ages 25–27" or "Off-list: Mumbai, Delhi").</li>
+        </ol>
+        <p><strong>Click any entity name</strong> in either list → opens the <strong>Planned vs Actual</strong> modal with the full per-entity breakdown, KPI scorecard, GA4 panel, and target-vs-actual table.</p>
+        <p class="text-[12px] italic text-slate-500 dark:text-slate-400"><strong>Mobile tip:</strong> mobile shows tile-style KPI cards. Tap a count chip to open the same expandable list as a bottom-sheet modal.</p>
+      `)}
+
+      ${sec('🚀', 'Delivery tab: knowing what is actually running', `
+        <p>The Delivery tab shows the live operational state of your account — not configuration, not performance, just "what's burning budget right now and how old is it."</p>
+        <div class="space-y-3 mt-3">
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/40 p-3">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">Status row (top)</div>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300">Four compact tiles: <strong>Live</strong> (Active + Learning combined, with a pulsing dot), <strong>Active</strong>, <strong>Learning</strong>, <strong>Inactive</strong>. Each shows ad-set count, campaign count, and total spend in the selected date range.</p>
+          </div>
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 bg-slate-50/60 dark:bg-slate-800/40 p-3">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">Age sections (below)</div>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300">Seven collapsed-by-default groups: Last 7 Days, 7–30 Days, 30–60 Days, 60–90 Days, 90–120 Days, 120–180 Days, 180+ Days. Tap any header to expand and see the ad sets in that age bucket with per-row spend, status pill, and launch date.</p>
+          </div>
+        </div>
+        <p class="pt-2"><strong>Status meanings:</strong></p>
+        <ul class="space-y-1 list-none pl-0">
+          <li>🟢 <strong>Active</strong> — delivering, past Meta's learning phase. Stable.</li>
+          <li>🟡 <strong>Learning</strong> — delivering but Meta is still optimizing. CAC/ROAS unreliable until learning exits (~50 conversions needed).</li>
+          <li>⚫ <strong>Inactive</strong> — paused, archived, or campaign-paused. Not spending.</li>
+        </ul>
+        <p class="text-[12px] italic text-slate-500 dark:text-slate-400 pt-2"><strong>Reading tip:</strong> if an ad set is still in Learning after 7 days, your daily budget is probably too low to hit 50 conversions/week. Raise budget OR widen the audience.</p>
+      `)}
+
+      ${sec('📅', 'Date range — what the calendar controls', `
+        <p>The date picker at the top changes the window for ALL spend, impressions, clicks, conversions, and GA4 metrics. Targeting fields (Age, Gender, etc.) don't change — they're configuration, not time-series.</p>
+        <ul class="space-y-2 list-none pl-0 mt-2">
+          <li><strong>Preset shortcuts</strong> (left side): Today, Yesterday, Last 7 Days, Last 30 Days, This Month. Click to apply instantly.</li>
+          <li><strong>Custom range</strong>: click a start date, then click an end date.</li>
+          <li><strong>Single day</strong>: <strong>double-click</strong> any date.</li>
+          <li><strong>Clear</strong>: removes the in-progress start date selection.</li>
+        </ul>
+        <p class="text-[12px] italic text-slate-500 dark:text-slate-400">All dates resolve in your ad account's timezone (IST for this account), so "Yesterday" means the same calendar day Meta Ads Manager shows.</p>
+      `)}
+
+      ${sec('🔗', 'How the metrics relate to each other', `
+        <p>Don\'t read each KPI in isolation. They form a funnel — fixing the wrong one wastes time.</p>
+        <div class="rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-700/40 p-3 font-mono text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+          Impressions → CTR → Clicks → Bounce Rate → Engaged Sessions → CVR → Conversions → CAC / ROAS
+        </div>
+        <p class="pt-2">If <strong>CAC is too high</strong>, walk left through the funnel:</p>
+        <ol class="space-y-1 pl-5">
+          <li>Is CVR low? → Landing page problem (offer, speed, friction).</li>
+          <li>If CVR is healthy: is Bounce Rate high? → Page-promise mismatch.</li>
+          <li>If Bounce is OK: is CTR low? → Creative isn\'t hooking the right audience.</li>
+          <li>If CTR is also healthy: the audience is just too expensive — try a different interest stack.</li>
+        </ol>
+        <p class="pt-2">If <strong>ROAS is below target</strong> but CAC is at target, the issue is on the <em>value</em> side (AOV is too low) — upsell, bundle, or raise prices. The ad is fine.</p>
+      `)}
+
+      ${sec('🛠️', 'Practical workflows — what to do each morning, week, and month', `
+        <div class="space-y-3">
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-1">Daily — 5 minutes</div>
+            <ol class="space-y-1 pl-5 text-[12px]">
+              <li>Open <strong>Performance</strong> tab. Date range = Yesterday.</li>
+              <li>Sort visually: any campaign in <strong>red (< 50%)</strong> gets paused or tuned today.</li>
+              <li>Open each red campaign → check which KPI is failing. Usually CAC or ROAS.</li>
+              <li>If a green campaign has spent significantly, consider raising its budget by 20%.</li>
+            </ol>
+          </div>
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400 mb-1">Weekly — 20 minutes</div>
+            <ol class="space-y-1 pl-5 text-[12px]">
+              <li>Open <strong>Setup</strong> tab. Look for any new non-compliant entries (ad sets recently launched with wrong targeting).</li>
+              <li>Open <strong>Delivery</strong> tab → check the Learning bucket. Any ad set still in Learning after 7 days needs more budget or wider audience.</li>
+              <li>Check the Last 7 Days age bucket to see what\'s recently launched and how it\'s performing.</li>
+            </ol>
+          </div>
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-[10px] font-bold uppercase tracking-widest text-rose-700 dark:text-rose-400 mb-1">Monthly — 1 hour</div>
+            <ol class="space-y-1 pl-5 text-[12px]">
+              <li>Date range = Last 30 Days. Tally winners (green) vs losers (red).</li>
+              <li>Update the sheet\'s threshold values if your targets have shifted (higher CAC ceiling for premium products, etc.).</li>
+              <li>Archive ad sets that have been inactive for 90+ days (they\'re no longer informative and clutter the matrix).</li>
+            </ol>
+          </div>
+        </div>
+      `)}
+
+      ${sec('💡', 'Decision examples', `
+        <div class="space-y-3">
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">Scenario 1: campaign at 71% (yellow), Budget red, others green</div>
+            <p class="text-[12px] mt-1">Daily budget is below the sheet threshold but everything else passes. <strong>Action:</strong> raise daily budget in Meta. Don\'t touch creative.</p>
+          </div>
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">Scenario 2: campaign at 29% (red), CAC red, ROAS red, CTR green</div>
+            <p class="text-[12px] mt-1">People click but don\'t buy. CTR doesn\'t save you when there\'s no revenue. <strong>Action:</strong> check the landing page (Bounce Rate row), and if that\'s fine, the offer / price is wrong for this audience.</p>
+          </div>
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">Scenario 3: campaign at 86% (green) on Setup but red on Performance</div>
+            <p class="text-[12px] mt-1">Configured correctly but losing money. <strong>Action:</strong> the targeting is fine, the issue is the ad itself. Test new creative. Don\'t rebuild the audience.</p>
+          </div>
+          <div class="rounded-lg border border-slate-200/60 dark:border-slate-700/40 p-3">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">Scenario 4: ad set in Delivery → Learning for 10+ days</div>
+            <p class="text-[12px] mt-1">Meta needs ~50 conversions/week to exit Learning. If you haven\'t hit that in 7 days, either daily budget is too low OR the audience is too narrow. <strong>Action:</strong> raise budget 50% OR broaden interests by 1 layer.</p>
+          </div>
+        </div>
+      `)}
+
+      ${sec('❓', 'Troubleshooting & common questions', `
+        <div class="space-y-2">
+          <details class="border border-slate-200/60 dark:border-slate-700/40 rounded-lg p-3">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">"The dashboard shows different numbers than Meta Ads Manager"</summary>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 mt-2">Usually a date-range or timezone issue. The dashboard uses your account\'s timezone (IST). If Meta is showing a different range, match them. If totals still differ, click <strong>Refresh</strong> to force a live re-fetch (this hits the Meta API and counts against your daily quota).</p>
+          </details>
+          <details class="border border-slate-200/60 dark:border-slate-700/40 rounded-lg p-3">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">"GA4 Bounce Rate shows ‘no GA4 sessions matched’"</summary>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 mt-2">The Meta campaign name doesn\'t match the <span class="font-mono">utm_campaign</span> value GA4 received. Make sure your ad URL parameters include <span class="font-mono">utm_campaign={{campaign.name}}</span>. Meta\'s default appends the campaign ID; the dashboard handles that automatically.</p>
+          </details>
+          <details class="border border-slate-200/60 dark:border-slate-700/40 rounded-lg p-3">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">"I edited the sheet but the dashboard still shows old targets"</summary>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 mt-2">Sheet changes apply on the next page load (no manual refresh needed). If you\'re still seeing old values, hard-refresh (Ctrl+Shift+R). Confirm the sheet itself is shared as "Anyone with the link can view" — gated sheets won\'t fetch.</p>
+          </details>
+          <details class="border border-slate-200/60 dark:border-slate-700/40 rounded-lg p-3">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">"What does the ‘policy floor’ note on Age mean?"</summary>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 mt-2">Some Custom Audience sources (WhatsApp Customer Base, certain Lookalikes) enforce a minimum age that Meta won\'t let you lower in the UI. The dashboard recognizes this and passes the KPI as long as your sheet target is reachable within the actual range.</p>
+          </details>
+          <details class="border border-slate-200/60 dark:border-slate-700/40 rounded-lg p-3">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">"How often does the data refresh?"</summary>
+            <p class="text-[12px] text-slate-600 dark:text-slate-300 mt-2">Once per day automatically (first visit of the day). Otherwise data is cached. Click the <strong>Refresh</strong> button anytime to force a live API fetch. The "Updated today · HH:MM" stamp at the top tells you when data was last pulled.</p>
+          </details>
+        </div>
+      `)}
+
+      <p class="text-center text-[11px] text-slate-400 dark:text-slate-500 pt-2 pb-6">
+        End of guide · Bookmark the <strong>How to Use</strong> tab and come back anytime.
+      </p>
+    </div>`;
+}
+
 /* Backwards-compatible alias — other code paths still call renderAll */
 function renderAll() {
-  if (APP.view === 'delivery') { renderDelivery(); renderKPIs(); }
-  else                         { renderHierarchy(); }   /* calls renderKPIs() itself */
+  if (APP.view === 'guide')         { renderGuide(); renderKPIs(); }
+  else if (APP.view === 'delivery') { renderDelivery(); renderKPIs(); }
+  else                              { renderHierarchy(); }   /* calls renderKPIs() itself */
 }
 
 function renderKPIs() {
@@ -3375,6 +3726,19 @@ function switchView(view) {
   document.getElementById('setupTab').classList.toggle('active',    view === 'setup');
   document.getElementById('perfTab').classList.toggle('active',     view === 'performance');
   document.getElementById('deliveryTab').classList.toggle('active', view === 'delivery');
+  document.getElementById('guideTab').classList.toggle('active',    view === 'guide');
+
+  /* Show/hide the toolbar + date picker depending on view. Guide tab
+     hides them since they're not relevant to a static document. */
+  const tb = document.getElementById('toolbarRow');
+  const dp = document.getElementById('dpTrigger');
+  if (view === 'guide') {
+    if (tb) tb.classList.add('hidden');
+    if (dp) dp.classList.add('invisible');
+  } else {
+    if (tb) tb.classList.remove('hidden');
+    if (dp) dp.classList.remove('invisible');
+  }
 
   /* Re-render IMMEDIATELY so the matrix swaps to the new tab's KPIs on
      the first click. If Performance needs insights we haven't fetched
