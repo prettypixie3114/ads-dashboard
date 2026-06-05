@@ -2583,6 +2583,12 @@ const COMPLETED_PURCHASES_MIN = 50;
                      info not returned). Default for graduated-but-low-
                      volume ad sets. */
 function deliveryBucket(item) {
+  /* Three states: Active (delivering, past learning), Learning (still
+     in Meta's learning phase), Inactive (paused/archived/etc.).
+     The old "Completed" bucket was confusing — both Completed and
+     Active mean "past learning + still delivering"; the only
+     distinction was a ≥50-purchases bonus tag which is better surfaced
+     on the row itself than as a separate section. Folded into Active. */
   const es = item.effective_status || item.status;
   if (es !== 'ACTIVE') return 'inactive';
 
@@ -2590,24 +2596,16 @@ function deliveryBucket(item) {
   if (isAdset) {
     const lsi = item.learning_stage_info;
     if (lsi && lsi.status === 'LEARNING') return 'learning';
-    /* Past learning (SUCCESS / LEARNING_LIMITED / no info) — now check
-       the 50-purchases gate. */
-    const purchases = _purchases(APP.insights[item.id]);
-    return purchases >= COMPLETED_PURCHASES_MIN ? 'completed' : 'active';
+    return 'active';
   }
 
-  /* Campaign — Completed only if ALL active children pass the same
-     gate (graduated + 50+ purchases each). Any child in Learning →
-     Learning. Otherwise → Active. */
+  /* Campaign — Learning if ANY active child is still learning, else Active. */
   const children = APP.adsets.filter(a => a.campaign_id === item.id);
   const activeChildren = children.filter(a => (a.effective_status || a.status) === 'ACTIVE');
   if (activeChildren.length === 0) return 'active';
   const anyLearning = activeChildren.some(a =>
     a.learning_stage_info && a.learning_stage_info.status === 'LEARNING');
-  if (anyLearning) return 'learning';
-  const allCompleted = activeChildren.every(a =>
-    _purchases(APP.insights[a.id]) >= COMPLETED_PURCHASES_MIN);
-  return allCompleted ? 'completed' : 'active';
+  return anyLearning ? 'learning' : 'active';
 }
 
 /* Absolute launch date, e.g. "Launched 09-Apr-26" — matches the
@@ -2629,7 +2627,9 @@ function ageLabel(item) {
 }
 
 function toggleDeliveryBucket(key) {
-  APP.deliveryCollapsed[key] = !APP.deliveryCollapsed[key];
+  /* Default state is COLLAPSED. We track only the explicit "open"
+     state (false). undefined/true both mean collapsed. */
+  APP.deliveryCollapsed[key] = APP.deliveryCollapsed[key] === false ? true : false;
   renderDelivery();
 }
 
@@ -2652,86 +2652,68 @@ function renderDelivery() {
   APP.campaigns.forEach(c => { campNameById[c.id] = c.name; });
 
   /* Campaign-level counts shown as a footnote on each card so you
-     still see "10 campaigns" alongside the ad-set total. */
-  const buckets = { active: [], learning: [], inactive: [], completed: [] };
+     still see "10 campaigns" alongside the ad-set total. Three buckets
+     now (Completed folded into Active). */
+  const buckets = { active: [], learning: [], inactive: [] };
   adsets.forEach(a => buckets[deliveryBucket(a)].push(a));
-  const campsByBucket = { active: new Set(), learning: new Set(), inactive: new Set(), completed: new Set() };
+  const campsByBucket = { active: new Set(), learning: new Set(), inactive: new Set() };
   adsets.forEach(a => campsByBucket[deliveryBucket(a)].add(a.campaign_id));
+
+  /* Per-status total spend — shown next to each section header instead
+     of as separate Spend/Impressions/Conversions tiles in the overview. */
+  const spendByStatus = { active: 0, learning: 0, inactive: 0 };
+  adsets.forEach(a => {
+    const s = parseFloat(APP.insights[a.id]?.spend || 0);
+    spendByStatus[deliveryBucket(a)] += s;
+  });
+  const fmtSpend = v => v > 0
+    ? `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+    : '—';
 
   document.getElementById('matrixScope').textContent =
     `${adsets.length} ad set${adsets.length === 1 ? '' : 's'} · ${APP.campaigns.length} campaigns`;
 
   const META = {
-    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Running — yet to hit completion bar' },
+    active:    { label: 'Active',    dot: 'bg-emerald-400', pill: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10', desc: 'Delivering (past learning)' },
     learning:  { label: 'Learning',  dot: 'bg-amber-400',   pill: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',       desc: 'Active + still in Meta learning phase' },
-    inactive:  { label: 'Inactive',  dot: 'bg-slate-400',   pill: 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/40',        desc: 'Paused, archived, or campaign-paused' },
-    completed: { label: 'Completed', dot: 'bg-indigo-400',  pill: 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10',     desc: `Past learning + ≥${COMPLETED_PURCHASES_MIN} orders in window` }
+    inactive:  { label: 'Inactive',  dot: 'bg-slate-400',   pill: 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/40',       desc: 'Paused, archived, or campaign-paused' }
   };
-  const ORDER = ['active','learning','inactive','completed'];
+  const STATUS_ORDER = ['active','learning','inactive'];
 
-  /* ── LIVE OVERVIEW — single highlight card at the top.
-     "Live" = Active + Learning (currently delivering ad sets, excludes
-     paused/inactive and completed). Pulls total spend, impressions, and
-     conversions across those ad sets so the user sees what's burning
-     right now without having to open the Performance tab.
-
-     Spend uses CAMPAIGN-level insights to avoid double-counting; the
-     per-ad-set spend in the rows below uses ad-set-level insights. */
+  /* ── LIVE OVERVIEW — just live count + campaign count. Spend /
+     Impressions / Conversions tiles removed per request; spend now
+     surfaces next to each section header so you see it in context of
+     the entities it sums. */
   const liveAdsets = [...buckets.active, ...buckets.learning];
   const liveCampIds = new Set(liveAdsets.map(a => a.campaign_id));
-  const liveTotalSpend = APP.campaigns
-    .filter(c => liveCampIds.has(c.id))
-    .reduce((s, c) => s + parseFloat(APP.insights[c.id]?.spend || 0), 0);
-  const liveTotalImpr = liveAdsets.reduce(
-    (s, a) => s + parseInt(APP.insights[a.id]?.impressions || 0, 10), 0);
-  const liveTotalConv = liveAdsets.reduce(
-    (s, a) => s + parseConversions(APP.insights[a.id]?.actions), 0);
   const overview = `
-    <div class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-5">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="relative flex h-2 w-2">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-        </span>
-        <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">Live Overview</span>
-        <span class="text-[10px] text-slate-400 dark:text-slate-500 ml-1">Active + Learning ad sets in the selected range</span>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div>
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Live Ad Sets</div>
-          <div class="text-2xl font-semibold text-emerald-700 dark:text-emerald-400 mt-0.5">${liveAdsets.length}<span class="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">/ ${adsets.length}</span></div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">across ${liveCampIds.size} campaign${liveCampIds.size === 1 ? '' : 's'}</div>
-        </div>
-        <div>
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Spend</div>
-          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100 mt-0.5 font-mono">${liveTotalSpend > 0 ? '₹' + liveTotalSpend.toLocaleString('en-IN',{maximumFractionDigits:0}) : '—'}</div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">in selected range</div>
-        </div>
-        <div>
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Impressions</div>
-          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100 mt-0.5">${liveTotalImpr > 0 ? liveTotalImpr.toLocaleString('en-IN') : '—'}</div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">from live ad sets</div>
-        </div>
-        <div>
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Conversions</div>
-          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100 mt-0.5">${liveTotalConv > 0 ? liveTotalConv.toLocaleString('en-IN') : '—'}</div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">from live ad sets</div>
+    <div class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-4 sm:p-5 flex items-center gap-4">
+      <span class="relative flex h-2.5 w-2.5 shrink-0">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+      </span>
+      <div class="min-w-0">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">Live</div>
+        <div class="text-base sm:text-lg font-semibold text-emerald-700 dark:text-emerald-400 mt-0.5">
+          ${liveAdsets.length} live ad set${liveAdsets.length === 1 ? '' : 's'}
+          <span class="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">across ${liveCampIds.size} campaign${liveCampIds.size === 1 ? '' : 's'}</span>
         </div>
       </div>
     </div>`;
 
-  /* ── Summary stat cards: BIG number = ad sets, footnote = campaigns ── */
+  /* ── Summary stat cards: ad-set count, campaign count, total spend
+     for each status. Three buckets only (Completed merged into Active). ── */
   const summary = `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      ${ORDER.map(k => `
-        <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-4">
+    <div class="grid grid-cols-3 gap-3">
+      ${STATUS_ORDER.map(k => `
+        <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-3 sm:p-4">
           <div class="flex items-center gap-2 mb-1.5">
             <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
             <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">${META[k].label}</span>
           </div>
-          <div class="text-2xl font-semibold text-slate-800 dark:text-slate-100">${buckets[k].length}<span class="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">ad sets</span></div>
-          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">across ${campsByBucket[k].size} campaign${campsByBucket[k].size === 1 ? '' : 's'}</div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-tight">${META[k].desc}</div>
+          <div class="text-xl sm:text-2xl font-semibold text-slate-800 dark:text-slate-100">${buckets[k].length}<span class="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">ad sets</span></div>
+          <div class="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">${campsByBucket[k].size} campaign${campsByBucket[k].size === 1 ? '' : 's'}</div>
+          <div class="text-[11px] sm:text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 mt-1">${fmtSpend(spendByStatus[k])}<span class="text-[9px] font-normal text-slate-400 ml-1 uppercase tracking-wider">spend</span></div>
         </div>`).join('')}
     </div>`;
 
@@ -2783,30 +2765,33 @@ function renderDelivery() {
     if (b) ageBuckets[b.key].push(a);
   });
 
-  /* ── One collapsible section per non-empty AGE bucket. ── */
+  /* ── One collapsible section per non-empty AGE bucket. Collapsed by
+     default so the user sees all 7 age groups at once and expands only
+     the ones they care about. ── */
   const section = (bucket) => {
     const list = ageBuckets[bucket.key];
     if (!list.length) return '';
     list.sort((a,b) => (entityAgeDays(b) ?? 0) - (entityAgeDays(a) ?? 0));
-    const collapsed = !!APP.deliveryCollapsed[bucket.key];
+    /* Default to collapsed unless the user has explicitly opened it.
+       APP.deliveryCollapsed[key] === false means "user opened this". */
+    const collapsed = APP.deliveryCollapsed[bucket.key] !== false;
     const panelId = `delivery_${bucket.key}`;
+    const bucketSpend = list.reduce(
+      (s, a) => s + parseFloat(APP.insights[a.id]?.spend || 0), 0);
     return `
       <section>
         <button type="button" onclick="toggleDeliveryBucket('${bucket.key}')"
           aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${panelId}"
           class="w-full flex items-center gap-2 mb-2.5 text-left cursor-pointer group">
-          <span class="w-2 h-2 rounded-full bg-slate-400"></span>
-          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">${bucket.label}</h2>
-          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length} ad set${list.length === 1 ? '' : 's'}</span>
-          <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block ml-auto mr-1">Oldest first · tap a row for Planned vs Actual</span>
-          <svg class="w-4 h-4 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'} ${collapsed ? 'ml-auto sm:ml-0' : ''}" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <svg class="w-4 h-4 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'} shrink-0" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M4.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
+          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">${bucket.label}</h2>
+          <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length} ad set${list.length === 1 ? '' : 's'}</span>
+          <span class="text-[11px] font-mono font-semibold text-slate-600 dark:text-slate-300 ml-auto">${fmtSpend(bucketSpend)}<span class="text-[9px] font-normal text-slate-400 ml-1 uppercase tracking-wider">spend</span></span>
         </button>
         ${collapsed ? '' : `
-        <div id="${panelId}" class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
-          <!-- Column headers. Mobile shows AD SET + SPEND; status pill
-               + launched columns are hidden under sm/md. -->
+        <div id="${panelId}" class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30 mb-1">
           <div class="flex items-center gap-3 px-3 py-2 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-200/60 dark:border-slate-700/40 text-[9px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
             <span class="w-2 h-2 shrink-0"></span>
             <span class="flex-1">Ad Set</span>
@@ -3247,14 +3232,12 @@ function renderDatePicker() {
   let m2y = m1y, m2m = m1m + 1;
   if (m2m > 11) { m2m -= 12; m2y += 1; }
 
-  /* Status hint — many users didn't realize they had to click twice for
-     a range. Surface what's expected next, plus an explicit Apply button
-     so a single date can be committed as a one-day range without a
-     second click. */
+  /* Status hint — explain the two interaction patterns. Removed the
+     "Apply just this day" button per user request; double-clicking a
+     date is now the single-day shortcut. */
   const hint = !PICKER.pendingStart
-    ? `<span class="text-slate-500 dark:text-slate-400">Pick a start date, then an end date — or click a preset on the left.</span>`
-    : `<span class="text-slate-700 dark:text-slate-200">Start: <strong>${fmtDateLabel(PICKER.pendingStart)}</strong> · click an end date <span class="text-slate-400">or</span></span>
-       <button type="button" onclick="event.stopPropagation(); applyPending()" class="dp-apply">Apply just this day</button>
+    ? `<span class="text-slate-500 dark:text-slate-400">Click two dates for a range, or <strong>double-click</strong> a date for a single day.</span>`
+    : `<span class="text-slate-700 dark:text-slate-200">Start: <strong>${fmtDateLabel(PICKER.pendingStart)}</strong> · now click the end date</span>
        <button type="button" onclick="event.stopPropagation(); clearPending()" class="dp-clear">Clear</button>`;
 
   popup.innerHTML = `
@@ -3274,13 +3257,16 @@ function renderDatePicker() {
     </div>`;
 }
 
-/* Commit the pending start as a single-day range. Lets users who just
-   want one specific day skip the "click twice" dance. */
-function applyPending() {
-  if (!PICKER.pendingStart) return;
-  APP.since = PICKER.pendingStart;
-  APP.until = PICKER.pendingStart;
+/* Double-click commits the date as a single-day range, regardless of
+   any in-flight pendingStart. The first click of a dblclick is harmless
+   (it sets pendingStart) and gets overwritten immediately by this. */
+function pickDayDouble(iso) {
+  if (iso > todayStr()) return;
+  APP.since = iso;
+  APP.until = iso;
   APP.datePreset = 'custom';
+  PICKER.pendingStart = null;
+  PICKER.hoverDate = null;
   updateDpTriggerLabel();
   closeDatePicker();
   if (APP.view === 'performance' && APP.campaigns.length > 0) {
@@ -3348,7 +3334,7 @@ function renderCalendar(year, month, showPrev, showNext) {
     if (iso > today)        cls.push('outside');
     const handler = c.outside || iso > today
       ? ''
-      : `onclick="event.stopPropagation(); pickDay('${iso}')" onmouseenter="dpHover('${iso}')"`;
+      : `onclick="event.stopPropagation(); pickDay('${iso}')" ondblclick="event.stopPropagation(); pickDayDouble('${iso}')" onmouseenter="dpHover('${iso}')"`;
     /* data-iso lets refreshDpRangeClasses() update each cell's
        in-range / range-start / range-end classes in place during
        hover, without destroying the DOM. */
@@ -3754,23 +3740,54 @@ function openAnalysis(id) {
   const compliantItems    = [];
   const nonCompliantItems = [];
   if (useRollup) {
-    /* Campaign on Setup tab → enumerate each child ad set × each KPI */
+    /* Campaign on Setup tab → group BY KPI (one summary row per KPI
+       per kind) instead of enumerating every child × every KPI as
+       separate rows. Old behavior produced N children × M KPIs rows
+       (a 16-ad-set campaign with 7 KPIs = 112 rows) which made the
+       PvA modal look like the campaign itself had 112 issues. The
+       summary row carries a `rollupChildren` array so the renderer
+       can offer a drill-down to the actual failing ad sets. */
     const children = APP.adsets.filter(c => c.campaign_id === item.id);
-    children.forEach(child => {
-      const cIns = APP.insights[child.id];
-      tabMetrics.forEach(m => {
-        if (m.appliesTo && !m.appliesTo.includes('adset')) return;
+    tabMetrics.forEach(m => {
+      if (m.appliesTo && !m.appliesTo.includes('adset')) return;
+      const passing = [], failing = [];
+      children.forEach(child => {
+        const cIns = APP.insights[child.id];
         const r = m.evaluate(child, cIns);
-        if (r === 'na') return;
-        const row = {
-          entity:  child.name,
-          metric:  m.label,
-          planned: m.target(child),
-          actual:  m.actual(child, cIns),
-          details: m.details ? m.details(child, cIns) : null
-        };
-        (r === 'pass' ? compliantItems : nonCompliantItems).push(row);
+        if (r === 'pass') passing.push(child);
+        else if (r === 'fail') failing.push(child);
       });
+      if (passing.length + failing.length === 0) return;
+      const total = passing.length + failing.length;
+      if (passing.length > 0) {
+        compliantItems.push({
+          metric:  m.label,
+          planned: m.target(),
+          actual:  `${passing.length} of ${total} ad set${total === 1 ? '' : 's'} pass`,
+          details: null,
+          rollupChildren: passing.map(c => ({ id: c.id, name: c.name }))
+        });
+      }
+      if (failing.length > 0) {
+        /* Pull a representative mismatch from the first failing child so
+           the user sees the concrete problem without drilling in. */
+        const firstFail = failing[0];
+        let sample = '';
+        if (m.mismatchDetail) {
+          sample = String(m.mismatchDetail(firstFail, APP.insights[firstFail.id]) || '').trim();
+        } else if (m.actual) {
+          sample = String(m.actual(firstFail, APP.insights[firstFail.id]) || '').trim();
+        }
+        sample = sample.replace(/<[^>]*>/g, '');
+        nonCompliantItems.push({
+          metric:  m.label,
+          planned: m.target(),
+          actual:  `${failing.length} of ${total} ad set${total === 1 ? '' : 's'} fail`,
+          details: null,
+          rollupChildren: failing.map(c => ({ id: c.id, name: c.name })),
+          rollupSample: sample
+        });
+      }
     });
   } else {
     /* Direct evaluation — one row per applicable KPI */
@@ -4045,6 +4062,28 @@ function openAnalysis(id) {
            }).join('')}
          </div>`
       : '';
+    /* Rollup drill-in: when r.rollupChildren is set, the row represents
+       N ad sets summarised under one KPI. Add a "View N ad sets ↓"
+       toggle that lists each child name as a clickable link → opens
+       the child's own PvA modal. Lets the user jump from the campaign
+       summary straight to a problem ad set without going back to the
+       matrix. */
+    const isRollup = Array.isArray(r.rollupChildren) && r.rollupChildren.length > 0;
+    const rid = `rollup_${kind}_${_detIdSeq++}`;
+    const rollupToggle = isRollup
+      ? `<button type="button" onclick="toggleListTail('${rid}', this, ${r.rollupChildren.length})" class="text-[10px] font-medium ${kind === 'pass' ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'} hover:underline decoration-dotted underline-offset-2 ml-1">View ${r.rollupChildren.length} ad set${r.rollupChildren.length === 1 ? '' : 's'} →</button>`
+      : '';
+    const rollupPanel = isRollup
+      ? `<div id="${rid}" class="hidden mt-2 ml-4 pl-3 border-l-2 ${kind === 'pass' ? 'border-emerald-300/60 dark:border-emerald-600/40' : 'border-rose-300/60 dark:border-rose-600/40'} space-y-1">
+           ${r.rollupSample ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 italic">e.g. ${escH(r.rollupSample)}</div>` : ''}
+           ${r.rollupChildren.map(c => `
+             <button type="button" onclick="event.stopPropagation(); closeAnalysis(); setTimeout(()=>openAnalysis('${c.id}'), 50);"
+               class="block w-full text-left text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/40 rounded px-2 py-1 truncate"
+               title="${escH(c.name)} — open Planned vs Actual">
+               ${escH(c.name)} <span class="text-slate-400">›</span>
+             </button>`).join('')}
+         </div>`
+      : '';
     return `
       <div class="py-2 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0">
         <div class="flex items-start gap-3">
@@ -4057,8 +4096,10 @@ function openAnalysis(id) {
               <span class="text-[11px] text-slate-500 dark:text-slate-400">·</span>
               <span class="text-xs font-mono font-semibold ${val}">${escH(r.actual)}</span>
               ${toggleBtn}
+              ${rollupToggle}
             </div>
             ${detailsPanel}
+            ${rollupPanel}
           </div>
         </div>
       </div>`;
