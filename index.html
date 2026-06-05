@@ -1246,7 +1246,11 @@ const PERF_METRICS = [
     target: (item) => item
       ? `≥ ₹${thresholdsFor(item).DAILY_BUDGET_MIN || 0}/day`
       : dualTarget('DAILY_BUDGET_MIN', v => `≥ ₹${v}/day`),
-    appliesTo: ['campaign','adset'],
+    /* Campaign-level only — under CBO (Campaign Budget Optimization)
+       most accounts don't set ad-set budgets at all, so evaluating
+       the rule against ad sets surfaces noise. The campaign's daily
+       budget is the real number that matters. */
+    appliesTo: ['campaign'],
     evaluate: (item) => {
       const daily = (item.daily_budget || 0) / 100;
       if (!daily) return 'na';
@@ -1731,12 +1735,19 @@ const SETUP_HANDLERS = {
     }
   },
   placement: {
+    /* Pass if AT LEAST ONE platform from the sheet target is in the
+       ad set's targeting. Targeting "Facebook & Instagram" on the
+       sheet means "either is acceptable" — so an ad set on Instagram
+       only is compliant (it IS on one of the approved platforms).
+       Old strict-every rule failed Instagram-only ad sets even though
+       Instagram was explicitly approved. */
     evaluate(item, target) {
       const pp = item.targeting?.publisher_platforms;
       const want = _splitTargets(target);
       if (want.length === 0) return pp?.length ? 'pass' : 'fail';
       if (!pp?.length) return 'fail';
-      return want.every(w => pp.map(p => p.toLowerCase()).includes(w)) ? 'pass' : 'fail';
+      const ppLower = pp.map(p => p.toLowerCase());
+      return want.some(w => ppLower.includes(w)) ? 'pass' : 'fail';
     },
     actual(item) {
       /* Show what Meta UI shows: per-platform positions when set
@@ -2424,6 +2435,76 @@ function closeKpiDetail() {
   modal.classList.remove('flex');
 }
 
+/* Reuse the KPI Detail sheet modal for the Delivery tab's status
+   tiles. Click Live/Active/Learning/Inactive → opens a list of the
+   matching ad sets sorted oldest-first. Rows still drill into
+   Planned vs Actual on tap. */
+function openDeliveryStatusModal(statusKey) {
+  if (!APP.adsets || APP.adsets.length === 0) return;
+  const META = {
+    live:     { label: 'Live',     desc: 'Active + Learning ad sets',                 cls: 'text-emerald-700 dark:text-emerald-400' },
+    active:   { label: 'Active',   desc: 'Delivering (past learning)',                cls: 'text-emerald-700 dark:text-emerald-400' },
+    learning: { label: 'Learning', desc: 'Active + still in Meta learning phase',     cls: 'text-amber-700 dark:text-amber-400' },
+    inactive: { label: 'Inactive', desc: 'Paused, archived, or campaign-paused',      cls: 'text-slate-600 dark:text-slate-300' }
+  };
+  const m = META[statusKey] || META.active;
+  let adsets = [...APP.adsets];
+  if (APP.searchQuery) {
+    const q = APP.searchQuery.toLowerCase();
+    adsets = adsets.filter(a => a.name?.toLowerCase().includes(q));
+  }
+  let matching;
+  if (statusKey === 'live') {
+    matching = adsets.filter(a => {
+      const b = deliveryBucket(a);
+      return b === 'active' || b === 'learning';
+    });
+  } else {
+    matching = adsets.filter(a => deliveryBucket(a) === statusKey);
+  }
+  matching.sort((a,b) => (entityAgeDays(b) ?? 0) - (entityAgeDays(a) ?? 0));
+
+  const totalSpend = matching.reduce(
+    (s, a) => s + parseFloat(APP.insights[a.id]?.spend || 0), 0);
+  const fmtS = v => v > 0
+    ? '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+    : '—';
+
+  const campNameById = Object.fromEntries(APP.campaigns.map(c => [c.id, c.name]));
+  const row = (a) => {
+    const spend = parseFloat(APP.insights[a.id]?.spend || 0);
+    const spendStr = spend > 0 ? '₹' + spend.toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '—';
+    const camp = campNameById[a.campaign_id] || '';
+    return `
+      <button type="button" onclick="closeKpiDetail(); setTimeout(()=>openAnalysis('${a.id}'), 50);"
+        class="w-full text-left flex items-center gap-3 py-2.5 px-3 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition rounded">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">${escH(a.name)}</div>
+          ${camp ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">in ${escH(camp)}</div>` : ''}
+        </div>
+        <span class="text-[11px] font-mono font-semibold text-slate-600 dark:text-slate-300 shrink-0 w-20 text-right">${spendStr}</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-28 text-right hidden sm:block">${launchDateLabel(a)}</span>
+        <span class="text-slate-300 dark:text-slate-600 text-sm shrink-0" aria-hidden="true">›</span>
+      </button>`;
+  };
+
+  document.getElementById('kpiDetailKind').className =
+    `text-[10px] font-semibold uppercase tracking-widest mb-0.5 ${m.cls}`;
+  document.getElementById('kpiDetailKind').textContent =
+    `${m.label} · ${matching.length} ad set${matching.length === 1 ? '' : 's'} · ${fmtS(totalSpend)} spend`;
+  document.getElementById('kpiDetailTitle').textContent = m.label + ' ad sets';
+  document.getElementById('kpiDetailTarget').textContent = m.desc;
+
+  const content = matching.length === 0
+    ? `<p class="text-xs text-slate-400 italic py-6 text-center">No ${m.label.toLowerCase()} ad sets in the selected date range.</p>`
+    : matching.map(row).join('');
+  document.getElementById('kpiDetailContent').innerHTML = `<div>${content}</div>`;
+
+  const modal = document.getElementById('kpiDetailModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
 function renderMatrixSection(title, subtitle, items, type, sectionKey) {
   const metrics = APP.view === 'performance' ? PERF_METRICS : SETUP_METRICS;
   const tabLabel = APP.view === 'performance' ? 'Performance' : 'Setup';
@@ -2825,7 +2906,10 @@ function renderDelivery() {
   const summary = `
     <div class="gap-1.5 sm:gap-3" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));">
       ${TILES.map(t => `
-        <div class="rounded-lg sm:rounded-xl border ${t.border} ${t.bg} p-2 sm:p-3 min-w-0 overflow-hidden">
+        <button type="button" onclick="openDeliveryStatusModal('${t.key}')"
+          ${t.count === 0 ? 'disabled' : ''}
+          class="text-left rounded-lg sm:rounded-xl border ${t.border} ${t.bg} p-2 sm:p-3 min-w-0 overflow-hidden ${t.count === 0 ? 'opacity-60 cursor-default' : 'hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 transition cursor-pointer'}"
+          aria-label="${t.label} — ${t.count} ad sets · tap to view list">
           <div class="flex items-center gap-1 mb-0.5 sm:mb-1">
             ${t.pulse
               ? `<span class="relative flex h-1.5 w-1.5 shrink-0">
@@ -2838,7 +2922,7 @@ function renderDelivery() {
           <div class="text-lg sm:text-xl font-semibold ${t.numCls} leading-tight">${t.count}</div>
           <div class="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">${t.camps} camp${t.camps === 1 ? '' : 's'}</div>
           <div class="text-[10px] sm:text-[11px] font-mono font-semibold text-slate-700 dark:text-slate-300 mt-0.5 truncate" title="${fmtSpend(t.spend)}">${fmtSpendShort(t.spend)}</div>
-        </div>`).join('')}
+        </button>`).join('')}
     </div>`;
   /* Old `overview` block is gone — Live is now the first tile in the
      compact row above. */
