@@ -401,13 +401,13 @@
     <div class="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
       <span class="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
     </div>
-    <div class="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
+    <div class="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0 max-h-[35vh] overflow-y-auto">
       <div class="min-w-0 flex-1 pr-3">
         <p id="kpiDetailKind" class="text-[10px] font-semibold uppercase tracking-widest mb-0.5"></p>
         <h3 id="kpiDetailTitle" class="font-semibold text-base sm:text-lg leading-snug truncate"></h3>
-        <p id="kpiDetailTarget" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1 break-words"></p>
+        <p id="kpiDetailTarget" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1 min-w-0" style="overflow-wrap: anywhere; word-break: break-word;"></p>
       </div>
-      <button onclick="closeKpiDetail()" aria-label="Close" type="button" class="w-11 h-11 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition -mr-1">
+      <button onclick="closeKpiDetail()" aria-label="Close" type="button" class="w-11 h-11 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition -mr-1 sticky top-0">
         <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
       </button>
     </div>
@@ -2258,19 +2258,45 @@ function openKpiDetail(sectionKey, metricId, kind) {
   const kindCls = kind === 'pass'
     ? 'text-emerald-700 dark:text-emerald-400'
     : 'text-rose-700 dark:text-rose-400';
-  const target = typeof m.target === 'function' ? m.target() : '';
+
+  /* Header target must be SHORT. Long targets (Location Included's
+     200+ cities) used to render verbatim in the non-scrolling header,
+     filling the viewport and pushing the entity list off-screen. Now
+     we always truncate to 3 items in the header and offer a tap to
+     reveal the full list inside the scrollable content area. */
+  const targetRaw = typeof m.target === 'function' ? String(m.target() || '').trim() : '';
+  const targetItems = targetRaw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+  let targetHeaderHtml = '';
+  let targetFullPanel = '';
+  if (!targetRaw) {
+    targetHeaderHtml = '';
+  } else if (targetItems.length <= 3) {
+    targetHeaderHtml = `Target: ${escH(targetRaw)}`;
+  } else {
+    const headPreview = targetItems.slice(0, 3).join(', ');
+    targetHeaderHtml = `Target: ${escH(headPreview)} <button type="button"
+        onclick="event.stopPropagation(); toggleListTail('kpiDetailTargetFull', this, ${targetItems.length})"
+        class="ml-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline decoration-dotted underline-offset-2">View all ${targetItems.length} →</button>`;
+    targetFullPanel = `
+      <div id="kpiDetailTargetFull" class="hidden mb-3 max-h-40 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900/40 rounded p-2 border border-slate-200/60 dark:border-slate-700/40 text-[11px] leading-relaxed min-w-0"
+           style="overflow-wrap: anywhere; word-break: break-word;">
+        <div class="text-[9px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Full target (${targetItems.length} items)</div>
+        ${escH(targetRaw)}
+      </div>`;
+  }
 
   document.getElementById('kpiDetailKind').className =
     `text-[10px] font-semibold uppercase tracking-widest mb-0.5 ${kindCls}`;
   document.getElementById('kpiDetailKind').textContent =
     `${kindLabel} · ${matching.length} item${matching.length === 1 ? '' : 's'}`;
   document.getElementById('kpiDetailTitle').textContent = m.label;
-  document.getElementById('kpiDetailTarget').textContent = target ? `Target: ${target}` : '';
+  document.getElementById('kpiDetailTarget').innerHTML = targetHeaderHtml;
 
   const content = matching.length === 0
     ? `<p class="text-xs text-slate-400 italic py-6 text-center">No items.</p>`
     : matching.map(it => entityComplianceRow(it, type, m, kind)).join('');
   document.getElementById('kpiDetailContent').innerHTML = `
+    ${targetFullPanel}
     <div class="space-y-0.5">${content}</div>`;
 
   const modal = document.getElementById('kpiDetailModal');
