@@ -33,6 +33,14 @@
   <div class="ml-auto flex items-center gap-1.5 sm:gap-2">
     <span id="lastRefresh" class="hidden md:block text-xs text-slate-400 dark:text-slate-500 mr-1"></span>
     <span id="loadingDot" class="hidden h-2 w-2 rounded-full bg-slate-400 animate-pulse"></span>
+    <button id="helpBtn" onclick="openGuideModal()" title="How to use this dashboard" aria-label="Open user guide"
+      class="min-w-[40px] min-h-[40px] inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </button>
     <button id="refreshBtn" onclick="loadData()" aria-label="Refresh data"
       class="flex items-center gap-1.5 text-xs font-medium min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 transition-colors">
       <svg id="refreshIcon" class="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -99,7 +107,6 @@
     <button id="setupTab"    class="view-tab active" onclick="switchView('setup')">Setup</button>
     <button id="perfTab"     class="view-tab"        onclick="switchView('performance')">Performance</button>
     <button id="deliveryTab" class="view-tab"        onclick="switchView('delivery')">Delivery</button>
-    <button id="guideTab"    class="view-tab"        onclick="switchView('guide')">How to Use</button>
   </div>
 </div>
 
@@ -382,6 +389,31 @@
          the fold. Toggled by updateAnalysisFade() based on scroll position. -->
     <div id="analysisFade" class="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white dark:from-gray-900 to-transparent opacity-0 transition-opacity"></div>
     <div id="analysisScrollHint" class="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-white/90 dark:bg-gray-900/90 px-2 py-0.5 rounded-full shadow-sm opacity-0 transition-opacity">↓ more below</div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  GUIDE MODAL — opened by the ? help icon in the header.       -->
+<!--  Same content as the old standalone Guide tab, now in an     -->
+<!--  overlay so it doesn't clutter the main tab bar.             -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="guideModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm items-center justify-center sm:p-4" style="z-index: 80">
+  <div class="relative bg-white dark:bg-gray-900 shadow-2xl flex flex-col overflow-hidden
+              w-full h-screen sm:h-auto
+              max-w-none sm:max-w-3xl
+              max-h-screen sm:max-h-[90vh]
+              rounded-none sm:rounded-2xl">
+    <div class="flex items-start justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
+      <div class="min-w-0 flex-1">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-0.5">User Guide</p>
+        <h3 class="font-semibold text-base sm:text-lg leading-snug">How to Use This Dashboard</h3>
+      </div>
+      <button onclick="closeGuideModal()" aria-label="Close" type="button" class="ml-2 w-11 h-11 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition -mr-1">
+        <svg class="w-5 h-5 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="guideModalContent" class="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5"></div>
   </div>
 </div>
 
@@ -2835,21 +2867,32 @@ function renderDelivery() {
 }
 
 /* ══════════════════════════════════════════════════════════════ */
-/*  GUIDE TAB — user-facing how-to-use documentation             */
+/*  GUIDE MODAL — user-facing how-to-use documentation            */
+/*  Opened by the ? icon in the header; closes on Escape / X /    */
+/*  backdrop tap.                                                  */
 /* ══════════════════════════════════════════════════════════════ */
-function renderGuide() {
-  const host = document.getElementById('hierarchyHost');
-  if (!host) return;
+function openGuideModal() {
+  const content = document.getElementById('guideModalContent');
+  if (!content) return;
+  /* Lazy-build the body the first time (it's static so cache after). */
+  if (!content.dataset.built) {
+    content.innerHTML = buildGuideHtml();
+    content.dataset.built = '1';
+  }
+  const modal = document.getElementById('guideModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  /* Reset scroll to top when reopening. */
+  content.scrollTop = 0;
+}
 
-  /* Toolbar (search / show-paused / export) and date picker aren't
-     relevant on the Guide tab — hide them while it's active. */
-  const tb = document.getElementById('toolbarRow');
-  if (tb) tb.classList.add('hidden');
-  const dp = document.getElementById('dpTrigger');
-  if (dp) dp.classList.add('invisible');
-  const matrixScope = document.getElementById('matrixScope');
-  if (matrixScope) matrixScope.textContent = '';
+function closeGuideModal() {
+  const modal = document.getElementById('guideModal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
 
+function buildGuideHtml() {
   /* Small UI primitives reused below. */
   const sec = (icon, title, body) => `
     <section class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-5 sm:p-6">
@@ -2897,18 +2940,16 @@ function renderGuide() {
       </div>
     </div>`;
 
-  host.innerHTML = `
-    <div class="space-y-5 max-w-4xl mx-auto pb-12">
+  return `
+    <div class="space-y-5">
 
       <!-- ── HERO ── -->
-      <section class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-6 sm:p-8">
-        <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-2">User Guide</div>
-        <h1 class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100 mb-3">How to Use This Dashboard</h1>
-        <p class="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
+      <section class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-5 sm:p-6">
+        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
           This dashboard pulls live data from your Meta Ads account, joins it with the targets you set in your Google Sheet, and tells you which campaigns and ad sets are on track and which need attention. This guide walks you through every tab, every number, and the colors you'll see — so you know exactly what to do when something turns red.
         </p>
-        <div class="mt-4 text-[11px] text-slate-500 dark:text-slate-400">
-          5-minute read · Bookmark this tab and come back any time
+        <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
+          5-minute read · Tap the <strong>?</strong> icon in the header any time to reopen this
         </div>
       </section>
 
@@ -3178,16 +3219,15 @@ function renderGuide() {
       `)}
 
       <p class="text-center text-[11px] text-slate-400 dark:text-slate-500 pt-2 pb-6">
-        End of guide · Bookmark the <strong>How to Use</strong> tab and come back anytime.
+        End of guide · Tap the <strong>?</strong> icon in the header to reopen this anytime.
       </p>
     </div>`;
 }
 
 /* Backwards-compatible alias — other code paths still call renderAll */
 function renderAll() {
-  if (APP.view === 'guide')         { renderGuide(); renderKPIs(); }
-  else if (APP.view === 'delivery') { renderDelivery(); renderKPIs(); }
-  else                              { renderHierarchy(); }   /* calls renderKPIs() itself */
+  if (APP.view === 'delivery') { renderDelivery(); renderKPIs(); }
+  else                         { renderHierarchy(); }   /* calls renderKPIs() itself */
 }
 
 function renderKPIs() {
@@ -3726,19 +3766,6 @@ function switchView(view) {
   document.getElementById('setupTab').classList.toggle('active',    view === 'setup');
   document.getElementById('perfTab').classList.toggle('active',     view === 'performance');
   document.getElementById('deliveryTab').classList.toggle('active', view === 'delivery');
-  document.getElementById('guideTab').classList.toggle('active',    view === 'guide');
-
-  /* Show/hide the toolbar + date picker depending on view. Guide tab
-     hides them since they're not relevant to a static document. */
-  const tb = document.getElementById('toolbarRow');
-  const dp = document.getElementById('dpTrigger');
-  if (view === 'guide') {
-    if (tb) tb.classList.add('hidden');
-    if (dp) dp.classList.add('invisible');
-  } else {
-    if (tb) tb.classList.remove('hidden');
-    if (dp) dp.classList.remove('invisible');
-  }
 
   /* Re-render IMMEDIATELY so the matrix swaps to the new tab's KPIs on
      the first click. If Performance needs insights we haven't fetched
@@ -4793,11 +4820,17 @@ function init() {
     if (e.key === 'Escape') {
       const kpiM = document.getElementById('kpiDetailModal');
       if (kpiM && !kpiM.classList.contains('hidden')) closeKpiDetail();
+      const guideM = document.getElementById('guideModal');
+      if (guideM && !guideM.classList.contains('hidden')) closeGuideModal();
     }
   });
   /* KPI Detail sheet — close on backdrop tap. */
   document.getElementById('kpiDetailModal').addEventListener('click', e => {
     if (e.target.id === 'kpiDetailModal') closeKpiDetail();
+  });
+  /* Guide modal — close on backdrop tap. */
+  document.getElementById('guideModal').addEventListener('click', e => {
+    if (e.target.id === 'guideModal') closeGuideModal();
   });
 
   /* Account pill */
