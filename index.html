@@ -2669,6 +2669,16 @@ function renderDelivery() {
   const fmtSpend = v => v > 0
     ? `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
     : '—';
+  /* Short spend formatter for the compact summary tiles where width is
+     scarce: ₹8.3L (lakh), ₹2.1Cr (crore), ₹3.5K. Matches the Indian
+     numbering style users already see in Meta's UI. */
+  const fmtSpendShort = v => {
+    if (!v || v <= 0) return '—';
+    if (v >= 10000000) return `₹${(v/10000000).toFixed(v/10000000 >= 10 ? 0 : 1)}Cr`;
+    if (v >= 100000)   return `₹${(v/100000).toFixed(v/100000 >= 10 ? 0 : 1)}L`;
+    if (v >= 1000)     return `₹${(v/1000).toFixed(v/1000 >= 10 ? 0 : 1)}K`;
+    return `₹${Math.round(v)}`;
+  };
 
   document.getElementById('matrixScope').textContent =
     `${adsets.length} ad set${adsets.length === 1 ? '' : 's'} · ${APP.campaigns.length} campaigns`;
@@ -2680,42 +2690,42 @@ function renderDelivery() {
   };
   const STATUS_ORDER = ['active','learning','inactive'];
 
-  /* ── LIVE OVERVIEW — just live count + campaign count. Spend /
-     Impressions / Conversions tiles removed per request; spend now
-     surfaces next to each section header so you see it in context of
-     the entities it sums. */
+  /* ── COMPACT STATUS ROW — Live + Active + Learning + Inactive in
+     a single 4-column row that fits a 360-px phone without scrolling
+     and stays compact on desktop too. Each tile shows: status dot +
+     label, big ad-set count, small campaigns count, abbreviated spend
+     (₹8.3L). Replaces the old full-width overview card + 3-card
+     summary grid that ate ~50vh on phones. ── */
   const liveAdsets = [...buckets.active, ...buckets.learning];
   const liveCampIds = new Set(liveAdsets.map(a => a.campaign_id));
-  const overview = `
-    <div class="rounded-2xl border border-emerald-200/60 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-500/[0.06] dark:to-slate-800/30 p-4 sm:p-5 flex items-center gap-4">
-      <span class="relative flex h-2.5 w-2.5 shrink-0">
-        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-      </span>
-      <div class="min-w-0">
-        <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">Live</div>
-        <div class="text-base sm:text-lg font-semibold text-emerald-700 dark:text-emerald-400 mt-0.5">
-          ${liveAdsets.length} live ad set${liveAdsets.length === 1 ? '' : 's'}
-          <span class="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">across ${liveCampIds.size} campaign${liveCampIds.size === 1 ? '' : 's'}</span>
-        </div>
-      </div>
-    </div>`;
-
-  /* ── Summary stat cards: ad-set count, campaign count, total spend
-     for each status. Three buckets only (Completed merged into Active). ── */
+  const liveSpend = spendByStatus.active + spendByStatus.learning;
+  const TILES = [
+    { key:'live',     label:'Live',     count: liveAdsets.length, camps: liveCampIds.size,        spend: liveSpend,            dotCls: 'bg-emerald-500',     numCls: 'text-emerald-700 dark:text-emerald-400',     border: 'border-emerald-200/60 dark:border-emerald-500/20', bg: 'bg-emerald-50/60 dark:bg-emerald-500/[0.05]',     labelCls: 'text-emerald-700 dark:text-emerald-400', pulse: true  },
+    { key:'active',   label:'Active',   count: buckets.active.length,   camps: campsByBucket.active.size,   spend: spendByStatus.active,   dotCls: 'bg-emerald-400',     numCls: 'text-slate-800 dark:text-slate-100',         border: 'border-slate-200/60 dark:border-slate-700/40',     bg: 'bg-white/80 dark:bg-slate-800/30',                labelCls: 'text-slate-500 dark:text-slate-400' },
+    { key:'learning', label:'Learning', count: buckets.learning.length, camps: campsByBucket.learning.size, spend: spendByStatus.learning, dotCls: 'bg-amber-400',       numCls: 'text-slate-800 dark:text-slate-100',         border: 'border-slate-200/60 dark:border-slate-700/40',     bg: 'bg-white/80 dark:bg-slate-800/30',                labelCls: 'text-slate-500 dark:text-slate-400' },
+    { key:'inactive', label:'Inactive', count: buckets.inactive.length, camps: campsByBucket.inactive.size, spend: spendByStatus.inactive, dotCls: 'bg-slate-400',       numCls: 'text-slate-800 dark:text-slate-100',         border: 'border-slate-200/60 dark:border-slate-700/40',     bg: 'bg-white/80 dark:bg-slate-800/30',                labelCls: 'text-slate-500 dark:text-slate-400' }
+  ];
   const summary = `
-    <div class="grid grid-cols-3 gap-3">
-      ${STATUS_ORDER.map(k => `
-        <div class="rounded-xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-3 sm:p-4">
-          <div class="flex items-center gap-2 mb-1.5">
-            <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
-            <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">${META[k].label}</span>
+    <div class="grid grid-cols-4 gap-1.5 sm:gap-3">
+      ${TILES.map(t => `
+        <div class="rounded-lg sm:rounded-xl border ${t.border} ${t.bg} p-2 sm:p-3 min-w-0">
+          <div class="flex items-center gap-1 mb-0.5 sm:mb-1">
+            ${t.pulse
+              ? `<span class="relative flex h-1.5 w-1.5 shrink-0">
+                   <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                   <span class="relative inline-flex rounded-full h-1.5 w-1.5 ${t.dotCls}"></span>
+                 </span>`
+              : `<span class="w-1.5 h-1.5 rounded-full ${t.dotCls} shrink-0"></span>`}
+            <span class="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider ${t.labelCls} truncate">${t.label}</span>
           </div>
-          <div class="text-xl sm:text-2xl font-semibold text-slate-800 dark:text-slate-100">${buckets[k].length}<span class="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">ad sets</span></div>
-          <div class="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">${campsByBucket[k].size} campaign${campsByBucket[k].size === 1 ? '' : 's'}</div>
-          <div class="text-[11px] sm:text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 mt-1">${fmtSpend(spendByStatus[k])}<span class="text-[9px] font-normal text-slate-400 ml-1 uppercase tracking-wider">spend</span></div>
+          <div class="text-lg sm:text-xl font-semibold ${t.numCls} leading-tight">${t.count}</div>
+          <div class="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">${t.camps} camp${t.camps === 1 ? '' : 's'}</div>
+          <div class="text-[10px] sm:text-[11px] font-mono font-semibold text-slate-700 dark:text-slate-300 mt-0.5 truncate" title="${fmtSpend(t.spend)}">${fmtSpendShort(t.spend)}</div>
         </div>`).join('')}
     </div>`;
+  /* Old `overview` block is gone — Live is now the first tile in the
+     compact row above. */
+  const overview = '';
 
   /* ── Per-ad-set row (clickable → opens Planned vs Actual).
      Shows spend in the date range + delivery status pill so users see
