@@ -1414,6 +1414,19 @@ function _sheetLocationExcludeSet() {
   );
 }
 
+/* Strip Meta's radius suffix from a city name so it matches the sheet's
+   plain name. Handles every distance_unit Meta returns: "Delhi (+31km)",
+   "Delhi (+31kilometer)", "Bengaluru (+10miles)", etc. The old narrow
+   regex only stripped "km/k" and missed the longer "kilometer" form,
+   so Delhi (+31kilometer) was being compared to the sheet's "Delhi"
+   verbatim and never matched. */
+function _normalizeCityName(n) {
+  return String(n || '')
+    .toLowerCase()
+    .replace(/\s*\(\+[^)]*\)/g, '')
+    .trim();
+}
+
 /* Shared helper — split a sheet target string into normalized tokens.
    Handles all the separators humans write: comma, newline, "&", "/",
    "and". Without this, a sheet value like "Facebook & Instagram"
@@ -1557,7 +1570,7 @@ const SETUP_HANDLERS = {
     evaluate(item, target) {
       const t = item.targeting || {};
       const targeted = _flattenGeo(t.geo_locations).map(n =>
-        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+        _normalizeCityName(n));
       if (targeted.length === 0) return 'fail';
       const allowed = new Set(
         String(target || '').split(/[\n,]/)
@@ -1593,7 +1606,7 @@ const SETUP_HANDLERS = {
       const targeted = _flattenGeo(t.geo_locations);
       if (!targeted.length) return 'No location set';
 
-      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const cleaned = targeted.map(n => _normalizeCityName(n));
       const excludedSet = _sheetLocationExcludeSet();
       const offenders = targeted.filter((_, i) => excludedSet.has(cleaned[i]));
       if (offenders.length) return `Targets excluded city: ${_listPreview(offenders)}`;
@@ -1613,7 +1626,7 @@ const SETUP_HANDLERS = {
       const targeted = _flattenGeo(t.geo_locations);
       if (!targeted.length) return null;
 
-      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const cleaned = targeted.map(n => _normalizeCityName(n));
       const excludedSet = _sheetLocationExcludeSet();
       const offenders = targeted.filter((_, i) => excludedSet.has(cleaned[i]));
       if (offenders.length) return { prefix: 'Targets excluded city', items: offenders };
@@ -1644,7 +1657,7 @@ const SETUP_HANDLERS = {
     evaluate(item, target) {
       const t = item.targeting || {};
       const targeted = _flattenGeo(t.geo_locations).map(n =>
-        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+        _normalizeCityName(n));
       const excludedSet = new Set(
         String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
       );
@@ -1655,7 +1668,7 @@ const SETUP_HANDLERS = {
     actual(item, target) {
       const t = item.targeting || {};
       const targeted = _flattenGeo(t.geo_locations).map(n =>
-        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+        _normalizeCityName(n));
       const excludedSet = new Set(
         String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
       );
@@ -1667,7 +1680,7 @@ const SETUP_HANDLERS = {
     mismatchDetail(item, target) {
       const t = item.targeting || {};
       const cleaned = _flattenGeo(t.geo_locations).map(n =>
-        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+        _normalizeCityName(n));
       const excludedSet = new Set(
         String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
       );
@@ -1680,7 +1693,7 @@ const SETUP_HANDLERS = {
     mismatchItems(item, target) {
       const t = item.targeting || {};
       const cleaned = _flattenGeo(t.geo_locations).map(n =>
-        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+        _normalizeCityName(n));
       const excludedSet = new Set(
         String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
       );
