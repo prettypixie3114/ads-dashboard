@@ -2347,14 +2347,18 @@ function renderMatrixSection(title, subtitle, items, type, sectionKey) {
       body = escH(raw);
     } else {
       const head = items.slice(0, PREVIEW_N).join(', ');
-      const tail = items.slice(PREVIEW_N).join(', ');
       const tid  = `tgt_${sectionKey}_${m.id}_${_tgtSeq++}`;
-      body = `${escH(head)}<span id="${tid}_tail" class="hidden">, ${escH(tail)}</span>
+      /* Tail is a basis-full block (forces a flex line break inside the
+         inline-flex parent) with capped height + scroll so a 50+ city
+         list doesn't push the rest of the row off-screen on mobile. */
+      body = `${escH(head)}
         <button type="button"
           onclick="event.stopPropagation(); toggleListTail('${tid}_tail', this, ${items.length})"
-          class="text-[10px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline decoration-dotted underline-offset-2 ml-1 align-middle">View all ${items.length} →</button>`;
+          class="text-[10px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline decoration-dotted underline-offset-2 ml-1 align-middle">View all ${items.length} →</button>
+        <div id="${tid}_tail" class="hidden basis-full w-full mt-1.5 max-h-40 sm:max-h-48 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900/40 rounded p-2 border border-slate-200/60 dark:border-slate-700/40 text-[11px] leading-relaxed min-w-0"
+             style="overflow-wrap: anywhere; word-break: break-word;">${escH(raw)}</div>`;
     }
-    return `<div class="text-sm font-mono text-slate-600 dark:text-slate-400 inline-flex items-center flex-wrap gap-y-0.5">${body}${editBtn}${overrideBadge}</div>`;
+    return `<div class="text-sm font-mono text-slate-600 dark:text-slate-400 inline-flex items-center flex-wrap gap-y-0.5 min-w-0 w-full">${body}${editBtn}${overrideBadge}</div>`;
   };
 
   /* Desktop row (≥ lg) */
@@ -2706,9 +2710,10 @@ function renderDelivery() {
     </div>`;
 
   /* ── Per-ad-set row (clickable → opens Planned vs Actual).
-     Now shows the ad set's spend in the date range so the user can
-     see at a glance which ad sets are burning the most. ── */
-  const adsetRow = (a, k) => {
+     Shows spend in the date range + delivery status pill so users see
+     both age (the section bucket) AND status (the pill) at a glance. ── */
+  const adsetRow = (a) => {
+    const status = deliveryBucket(a);
     const campName = campNameById[a.campaign_id] || '';
     const spend = parseFloat(APP.insights[a.id]?.spend || 0);
     const spendStr = spend > 0
@@ -2716,33 +2721,56 @@ function renderDelivery() {
       : '<span class="text-slate-300 dark:text-slate-600">—</span>';
     return `
       <button type="button" onclick="openAnalysis('${a.id}')"
-        title="${escH(a.name)}${campName ? ' · in ' + escH(campName) : ''}"
+        title="${escH(a.name)}${campName ? ' · in ' + escH(campName) : ''} · ${META[status].label}"
         class="w-full text-left flex items-center gap-3 py-2.5 px-3 border-b border-slate-200/40 dark:border-slate-700/30 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer group">
-        <span class="w-2 h-2 rounded-full ${META[k].dot} shrink-0 mt-1"></span>
+        <span class="w-2 h-2 rounded-full ${META[status].dot} shrink-0 mt-1" title="${META[status].label}"></span>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white">${escH(a.name)}</div>
           ${campName ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">in ${escH(campName)}</div>` : ''}
         </div>
+        <span class="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 hidden sm:inline ${META[status].pill}">${META[status].label}</span>
         <span class="text-[11px] font-mono font-semibold text-slate-600 dark:text-slate-300 shrink-0 w-20 text-right">${spendStr}</span>
-        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden sm:block">${launchDateLabel(a)}</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 w-36 text-right hidden md:block">${launchDateLabel(a)}</span>
         <span class="text-slate-300 dark:text-slate-600 group-hover:text-slate-500 text-sm shrink-0" aria-hidden="true">›</span>
       </button>`;
   };
 
-  /* ── One collapsible section per non-empty bucket. ── */
-  const section = (k) => {
-    const list = buckets[k];
+  /* ── AGE buckets — primary categorization per user request. Each
+     ad set lands in exactly one bucket by its age in days; status
+     (Active/Learning/etc.) becomes a pill on each row. Ad sets with
+     no usable age (no start_time, no created_time) go in "Unknown". ── */
+  const AGE_BUCKETS = [
+    { key: 'age_7',    label: 'Last 7 Days',    min: 0,   max: 7   },
+    { key: 'age_30',   label: '7–30 Days',      min: 8,   max: 30  },
+    { key: 'age_60',   label: '30–60 Days',     min: 31,  max: 60  },
+    { key: 'age_90',   label: '60–90 Days',     min: 61,  max: 90  },
+    { key: 'age_120',  label: '90–120 Days',    min: 91,  max: 120 },
+    { key: 'age_180',  label: '120–180 Days',   min: 121, max: 180 },
+    { key: 'age_old',  label: '180+ Days',      min: 181, max: Infinity },
+    { key: 'age_none', label: 'Unknown age',    min: null, max: null }
+  ];
+  const ageBuckets = Object.fromEntries(AGE_BUCKETS.map(b => [b.key, []]));
+  adsets.forEach(a => {
+    const age = entityAgeDays(a);
+    if (age == null) { ageBuckets.age_none.push(a); return; }
+    const b = AGE_BUCKETS.find(x => x.min !== null && age >= x.min && age <= x.max);
+    if (b) ageBuckets[b.key].push(a);
+  });
+
+  /* ── One collapsible section per non-empty AGE bucket. ── */
+  const section = (bucket) => {
+    const list = ageBuckets[bucket.key];
     if (!list.length) return '';
     list.sort((a,b) => (entityAgeDays(b) ?? 0) - (entityAgeDays(a) ?? 0));
-    const collapsed = !!APP.deliveryCollapsed[k];
-    const panelId = `delivery_${k}`;
+    const collapsed = !!APP.deliveryCollapsed[bucket.key];
+    const panelId = `delivery_${bucket.key}`;
     return `
       <section>
-        <button type="button" onclick="toggleDeliveryBucket('${k}')"
+        <button type="button" onclick="toggleDeliveryBucket('${bucket.key}')"
           aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${panelId}"
           class="w-full flex items-center gap-2 mb-2.5 text-left cursor-pointer group">
-          <span class="w-2 h-2 rounded-full ${META[k].dot}"></span>
-          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">${META[k].label}</h2>
+          <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+          <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">${bucket.label}</h2>
           <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${list.length} ad set${list.length === 1 ? '' : 's'}</span>
           <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block ml-auto mr-1">Oldest first · tap a row for Planned vs Actual</span>
           <svg class="w-4 h-4 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'} ${collapsed ? 'ml-auto sm:ml-0' : ''}" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -2751,17 +2779,17 @@ function renderDelivery() {
         </button>
         ${collapsed ? '' : `
         <div id="${panelId}" class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
-          <!-- Column headers so the spend number / launch date columns
-               aren't unlabeled. Mobile shows just "AD SET" and "SPEND"
-               since the launch date column is hidden on small screens. -->
+          <!-- Column headers. Mobile shows AD SET + SPEND; status pill
+               + launched columns are hidden under sm/md. -->
           <div class="flex items-center gap-3 px-3 py-2 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-200/60 dark:border-slate-700/40 text-[9px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
             <span class="w-2 h-2 shrink-0"></span>
             <span class="flex-1">Ad Set</span>
+            <span class="hidden sm:inline shrink-0">Status</span>
             <span class="shrink-0 w-20 text-right">Spend</span>
-            <span class="shrink-0 w-36 text-right hidden sm:block">Launched</span>
+            <span class="shrink-0 w-36 text-right hidden md:block">Launched</span>
             <span class="shrink-0 w-3" aria-hidden="true"></span>
           </div>
-          ${list.map(a => adsetRow(a, k)).join('')}
+          ${list.map(a => adsetRow(a)).join('')}
         </div>`}
       </section>`;
   };
@@ -2775,7 +2803,8 @@ function renderDelivery() {
       ${overview}
       ${summary}
       ${learningNote}
-      ${ORDER.map(section).join('')}
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 pt-2">By Age</div>
+      ${AGE_BUCKETS.map(section).join('')}
       ${adsets.length === 0 ? '<div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-400">No ad sets match.</div>' : ''}
     </div>`;
 }
