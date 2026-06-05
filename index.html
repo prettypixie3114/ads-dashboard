@@ -2705,10 +2705,13 @@ function renderDelivery() {
     { key:'learning', label:'Learning', count: buckets.learning.length, camps: campsByBucket.learning.size, spend: spendByStatus.learning, dotCls: 'bg-amber-400',       numCls: 'text-slate-800 dark:text-slate-100',         border: 'border-slate-200/60 dark:border-slate-700/40',     bg: 'bg-white/80 dark:bg-slate-800/30',                labelCls: 'text-slate-500 dark:text-slate-400' },
     { key:'inactive', label:'Inactive', count: buckets.inactive.length, camps: campsByBucket.inactive.size, spend: spendByStatus.inactive, dotCls: 'bg-slate-400',       numCls: 'text-slate-800 dark:text-slate-100',         border: 'border-slate-200/60 dark:border-slate-700/40',     bg: 'bg-white/80 dark:bg-slate-800/30',                labelCls: 'text-slate-500 dark:text-slate-400' }
   ];
+  /* Inline display:grid + grid-template-columns guarantees the 4-up
+     row even when a stale Service Worker is still serving an older
+     dist/tailwind.css that pre-dates these utility classes. */
   const summary = `
-    <div class="grid grid-cols-4 gap-1.5 sm:gap-3">
+    <div class="gap-1.5 sm:gap-3" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));">
       ${TILES.map(t => `
-        <div class="rounded-lg sm:rounded-xl border ${t.border} ${t.bg} p-2 sm:p-3 min-w-0">
+        <div class="rounded-lg sm:rounded-xl border ${t.border} ${t.bg} p-2 sm:p-3 min-w-0 overflow-hidden">
           <div class="flex items-center gap-1 mb-0.5 sm:mb-1">
             ${t.pulse
               ? `<span class="relative flex h-1.5 w-1.5 shrink-0">
