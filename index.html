@@ -1395,6 +1395,25 @@ function _listPreview(arr, n = 3) {
   return arr.length <= n ? head : `${head} +${arr.length - n} more`;
 }
 
+/* Cross-rule lookup: the Location Included handler needs to know what's
+   on the sheet's "Location excluded" row (and vice versa) to enforce
+   the "you targeted a city you said you'd exclude" rule. APP.setupRules
+   is populated by the sheet parser; match by case-insensitive name. */
+function _setupRuleTargetByName(name) {
+  const norm = String(name || '').toLowerCase().trim();
+  const rule = (APP.setupRules || []).find(r => {
+    const k = String(r.kpi || '').toLowerCase().trim();
+    return k === norm || k.replace(/[\s_]+/g, '') === norm.replace(/[\s_]+/g, '');
+  });
+  return rule ? rule.target : '';
+}
+function _sheetLocationExcludeSet() {
+  const raw = _setupRuleTargetByName('Location excluded');
+  return new Set(
+    String(raw || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+  );
+}
+
 /* Shared helper — split a sheet target string into normalized tokens.
    Handles all the separators humans write: comma, newline, "&", "/",
    "and". Without this, a sheet value like "Facebook & Instagram"
@@ -1524,24 +1543,32 @@ const SETUP_HANDLERS = {
     }
   },
   location_included: {
+    /* New cross-list rule per user:
+         PASS = (at least one targeted city is on the sheet's
+                 "Location Included" allow-list)
+              AND
+                (none of the targeted cities is on the sheet's
+                 "Location excluded" list)
+         The ad set's OWN excluded_geo_locations field is no longer
+         checked here — that auto-fail was confusing users who
+         intentionally excluded cities matching the sheet. The real
+         compliance check is now "did you include the right cities
+         and NOT target any city you said you'd exclude?" */
     evaluate(item, target) {
       const t = item.targeting || {};
-      const exc = _flattenGeo(t.excluded_geo_locations);
-      if (exc.length > 0) return 'fail';   /* any exclusion auto-fails */
+      const targeted = _flattenGeo(t.geo_locations).map(n =>
+        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      if (targeted.length === 0) return 'fail';
       const allowed = new Set(
         String(target || '').split(/[\n,]/)
           .map(s => s.trim().toLowerCase()).filter(Boolean)
       );
       if (allowed.size === 0) return 'na';
-      const targeted = _flattenGeo(t.geo_locations).map(n =>
-        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
-      if (targeted.length === 0) return 'fail';
-      /* Pass if at least ONE targeted location is on the allow-list.
-         Previous semantics ("every targeted in allow-list") was too
-         strict — ad sets that also target a neighbouring small town
-         not on the sheet's primary list were failing even though they
-         cover the main allowed cities. */
-      return targeted.some(n => allowed.has(n)) ? 'pass' : 'fail';
+      const excludedSet = _sheetLocationExcludeSet();
+      const hasIncluded = targeted.some(n => allowed.has(n));
+      const targetsExcluded = targeted.some(n => excludedSet.has(n));
+      if (targetsExcluded) return 'fail';
+      return hasIncluded ? 'pass' : 'fail';
     },
     actual(item) {
       const inc = _flattenGeo(item.targeting?.geo_locations);
@@ -1556,23 +1583,25 @@ const SETUP_HANDLERS = {
       const excPart = exc.length ? ` · ⚠ Excl ${exc.length}` : '';
       return incPart + excPart;
     },
-    /* Concise mismatch language — three fail modes, three short labels:
-         • Excluded:  exclusion locations are present
-         • Off-list:  targets aren't on the allow-list
-         • No targeting set: no location at all */
+    /* Three fail modes under the new rule:
+         • Targets excluded city: ad set inclusions hit a city on the
+           sheet's "Location excluded" row (worst — overrides everything)
+         • Off-list: targets exist but none match the allow-list
+         • No location set: ad set has no inclusions at all */
     mismatchDetail(item, target) {
       const t = item.targeting || {};
-      const exc = _flattenGeo(t.excluded_geo_locations);
-      if (exc.length) return `Excluded: ${_listPreview(exc)}`;
-
       const targeted = _flattenGeo(t.geo_locations);
       if (!targeted.length) return 'No location set';
+
+      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const excludedSet = _sheetLocationExcludeSet();
+      const offenders = targeted.filter((_, i) => excludedSet.has(cleaned[i]));
+      if (offenders.length) return `Targets excluded city: ${_listPreview(offenders)}`;
 
       const allowed = new Set(
         String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
       );
       if (allowed.size === 0) return `Targets: ${_listPreview(targeted)}`;
-      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
       const anyMatch = cleaned.some(n => allowed.has(n));
       if (!anyMatch) return `Off-list: ${_listPreview(targeted)}`;
       return 'Mismatch';
@@ -1581,17 +1610,18 @@ const SETUP_HANDLERS = {
        can show a "View all N" expand instead of truncating to 3 + "more". */
     mismatchItems(item, target) {
       const t = item.targeting || {};
-      const exc = _flattenGeo(t.excluded_geo_locations);
-      if (exc.length) return { prefix: 'Excluded', items: exc };
-
       const targeted = _flattenGeo(t.geo_locations);
       if (!targeted.length) return null;
+
+      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const excludedSet = _sheetLocationExcludeSet();
+      const offenders = targeted.filter((_, i) => excludedSet.has(cleaned[i]));
+      if (offenders.length) return { prefix: 'Targets excluded city', items: offenders };
 
       const allowed = new Set(
         String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
       );
       if (allowed.size === 0) return { prefix: 'Targets', items: targeted };
-      const cleaned = targeted.map(n => n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
       const anyMatch = cleaned.some(n => allowed.has(n));
       if (!anyMatch) return { prefix: 'Off-list targets', items: targeted };
       return null;
@@ -1606,25 +1636,63 @@ const SETUP_HANDLERS = {
     }
   },
   location_excluded: {
-    evaluate(item) {
-      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
-      return exc.length === 0 ? 'pass' : 'fail';
+    /* New rule: this KPI checks whether the ad set's INCLUSIONS
+       accidentally hit a city listed on the sheet's "Location excluded"
+       row. If yes → fail. The ad set's own excluded_geo_locations
+       field is informational only (still surfaced via details() so the
+       user can see what's been deliberately excluded in Meta). */
+    evaluate(item, target) {
+      const t = item.targeting || {};
+      const targeted = _flattenGeo(t.geo_locations).map(n =>
+        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const excludedSet = new Set(
+        String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      if (excludedSet.size === 0) return 'na';
+      const violations = targeted.filter(n => excludedSet.has(n));
+      return violations.length === 0 ? 'pass' : 'fail';
     },
-    actual(item) {
-      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
-      return exc.length === 0 ? 'None' : `${exc.length} location${exc.length===1?'':'s'} excluded`;
+    actual(item, target) {
+      const t = item.targeting || {};
+      const targeted = _flattenGeo(t.geo_locations).map(n =>
+        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const excludedSet = new Set(
+        String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      const hitsRaw = _flattenGeo(t.geo_locations).filter((_, i) =>
+        excludedSet.has(targeted[i]));
+      if (hitsRaw.length === 0) return 'None on exclude-list';
+      return `${hitsRaw.length} excluded-list ${hitsRaw.length === 1 ? 'city' : 'cities'} in targeting`;
     },
-    mismatchItems(item) {
-      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
-      return exc.length ? { prefix: 'Excluded', items: exc } : null;
+    mismatchDetail(item, target) {
+      const t = item.targeting || {};
+      const cleaned = _flattenGeo(t.geo_locations).map(n =>
+        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const excludedSet = new Set(
+        String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      const offenders = _flattenGeo(t.geo_locations).filter((_, i) =>
+        excludedSet.has(cleaned[i]));
+      return offenders.length
+        ? `Targets a city on the exclude-list: ${_listPreview(offenders)}`
+        : 'Mismatch';
     },
-    mismatchDetail(item) {
-      const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
-      return exc.length ? `Excluded: ${_listPreview(exc)}` : 'Mismatch';
+    mismatchItems(item, target) {
+      const t = item.targeting || {};
+      const cleaned = _flattenGeo(t.geo_locations).map(n =>
+        n.toLowerCase().replace(/\s*\(\+\d+km?\)/, '').trim());
+      const excludedSet = new Set(
+        String(target || '').split(/[\n,]/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      );
+      const offenders = _flattenGeo(t.geo_locations).filter((_, i) =>
+        excludedSet.has(cleaned[i]));
+      return offenders.length
+        ? { prefix: 'Targets a city on the exclude-list', items: offenders }
+        : null;
     },
     details(item) {
       const exc = _flattenGeo(item.targeting?.excluded_geo_locations);
-      return exc.length ? { 'Excluded locations': exc } : null;
+      return exc.length ? { 'Deliberately excluded in Meta': exc } : null;
     }
   },
   interests: {
