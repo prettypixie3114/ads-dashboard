@@ -325,3 +325,84 @@
 
     /* ── Truncate with tooltip trigger ── */
     .cell-truncate { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DARK MODE — neutral black palette (replaces Tailwind's
+       blue-tinted slate-900/800/700 etc.) The user wanted black, not
+       the slight blue cast that Tailwind's default slate dark theme
+       carries. Source-order override of Tailwind utility classes:
+       same specificity, but this CSS is appended AFTER the utility
+       layer so it wins the cascade.
+
+       Color choices:
+         page bg / deepest:  #0a0a0a   (almost-black, less harsh than #000)
+         card surfaces:      #141414   (subtly lighter for hierarchy)
+         elevated surfaces:  #1c1c1c
+         hover bands:        #202020
+         borders:            #2a2a2a
+       Alpha variants preserve their /20 /30 /40 /60 /80 /90 ratios
+       using rgba on the same neutral base.
+       ═══════════════════════════════════════════════════════════════ */
+
+    /* Page background — replaces the slate-900 root bg */
+    html.dark body { background-color: #0a0a0a; }
+
+    /* slate-900 family → near-black */
+    html.dark .dark\:bg-slate-900       { background-color: #0a0a0a; }
+    html.dark .dark\:bg-slate-900\/80   { background-color: rgba(10, 10, 10, 0.8); }
+    html.dark .dark\:bg-slate-900\/60   { background-color: rgba(10, 10, 10, 0.6); }
+    html.dark .dark\:bg-slate-900\/40   { background-color: rgba(10, 10, 10, 0.4); }
+    html.dark .dark\:bg-slate-900\/30   { background-color: rgba(10, 10, 10, 0.3); }
+    html.dark .dark\:bg-gray-900        { background-color: #0a0a0a; }
+    html.dark .dark\:bg-gray-900\/90    { background-color: rgba(10, 10, 10, 0.9); }
+
+    /* slate-800 family → card surfaces (slightly lighter than page) */
+    html.dark .dark\:bg-slate-800       { background-color: #141414; }
+    html.dark .dark\:bg-slate-800\/60   { background-color: rgba(20, 20, 20, 0.6); }
+    html.dark .dark\:bg-slate-800\/40   { background-color: rgba(20, 20, 20, 0.45); }
+    html.dark .dark\:bg-slate-800\/30   { background-color: rgba(20, 20, 20, 0.35); }
+    html.dark .dark\:bg-slate-800\/20   { background-color: rgba(20, 20, 20, 0.25); }
+    html.dark .dark\:bg-gray-800        { background-color: #141414; }
+
+    /* slate-700 family → elevated/hover surfaces and borders */
+    html.dark .dark\:bg-slate-700       { background-color: #1c1c1c; }
+    html.dark .dark\:bg-slate-700\/60   { background-color: rgba(28, 28, 28, 0.6); }
+    html.dark .dark\:bg-slate-700\/50   { background-color: rgba(28, 28, 28, 0.5); }
+    html.dark .dark\:bg-slate-700\/40   { background-color: rgba(28, 28, 28, 0.45); }
+    html.dark .dark\:bg-slate-700\/30   { background-color: rgba(28, 28, 28, 0.35); }
+
+    /* slate-600 — used in a couple of places for stronger surfaces */
+    html.dark .dark\:bg-slate-600       { background-color: #2a2a2a; }
+
+    /* Borders — neutralize the blue cast across all slate border alphas */
+    html.dark .dark\:border-slate-700,
+    html.dark .dark\:border-slate-700\/40,
+    html.dark .dark\:border-slate-700\/60,
+    html.dark .dark\:border-slate-700\/30  { border-color: rgba(42, 42, 42, 0.6); }
+    html.dark .dark\:border-slate-800,
+    html.dark .dark\:border-slate-800\/60  { border-color: rgba(30, 30, 30, 0.65); }
+    html.dark .dark\:border-gray-800,
+    html.dark .dark\:border-gray-100       { border-color: rgba(35, 35, 35, 0.55); }
+
+    /* Gradients (Live Overview card etc.) — strip the slate tint */
+    html.dark .dark\:from-gray-900   { --tw-gradient-from: #0a0a0a var(--tw-gradient-from-position); --tw-gradient-to: rgb(10 10 10 / 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+    html.dark .dark\:to-slate-800\/30 { --tw-gradient-to: rgba(20, 20, 20, 0.35) var(--tw-gradient-to-position); }
+
+    /* Date-picker popup + chrome — these used inline #1e293b. Re-skin. */
+    html.dark .dp-popup { background: #141414; border-color: rgba(42, 42, 42, 0.6); }
+    html.dark .dp-preset       { color: #cbd5e1; }
+    html.dark .dp-preset:hover { background: rgba(255, 255, 255, 0.05); color: #f1f5f9; }
+    html.dark .dp-preset.active{ background: rgba(255, 255, 255, 0.08); color: #fff; }
+    html.dark .dp-cal-header   { border-bottom-color: rgba(42, 42, 42, 0.5); }
+    html.dark .dp-month-name   { color: #f1f5f9; }
+    html.dark .dp-day          { color: #cbd5e1; }
+    html.dark .dp-day:hover::before  { background: rgba(255, 255, 255, 0.06); }
+    html.dark .dp-day.in-range { background: rgba(99, 102, 241, 0.18); color: #f1f5f9; }
+    html.dark .dp-day.range-start::before,
+    html.dark .dp-day.range-end::before { background: #e2e8f0; }
+    html.dark .dp-day.range-start,
+    html.dark .dp-day.range-end         { color: #0a0a0a; }
+    html.dark .dp-clear:hover { background: rgba(255, 255, 255, 0.06); }
+
+    /* Scrollbar thumb in dark — neutral, not blue */
+    html.dark ::-webkit-scrollbar-thumb { background: #2a2a2a; }
