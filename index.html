@@ -41,7 +41,7 @@
         <line x1="12" y1="17" x2="12.01" y2="17"/>
       </svg>
     </button>
-    <button id="refreshBtn" onclick="loadData()" aria-label="Refresh data"
+    <button id="refreshBtn" onclick="refreshCurrent()" aria-label="Refresh data"
       class="flex items-center gap-1.5 text-xs font-medium min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 transition-colors">
       <svg id="refreshIcon" class="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
       <span class="hidden sm:inline">Refresh</span>
@@ -104,9 +104,20 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <div class="border-b border-slate-200/60 dark:border-slate-700/40 bg-white/30 dark:bg-slate-900/30 px-3 sm:px-5">
   <div class="max-w-screen-2xl mx-auto flex items-center gap-1 sm:gap-2 overflow-x-auto">
-    <button id="setupTab"    class="view-tab active" onclick="switchView('setup')">Setup</button>
-    <button id="perfTab"     class="view-tab"        onclick="switchView('performance')">Performance</button>
-    <button id="deliveryTab" class="view-tab"        onclick="switchView('delivery')">Delivery</button>
+    <!-- Meta compliance tabs — hidden when the Google Ads source is active -->
+    <div id="viewTabsBtns" class="flex items-center gap-1 sm:gap-2">
+      <button id="setupTab"    class="view-tab active" onclick="switchView('setup')">Setup</button>
+      <button id="perfTab"     class="view-tab"        onclick="switchView('performance')">Performance</button>
+      <button id="deliveryTab" class="view-tab"        onclick="switchView('delivery')">Delivery</button>
+    </div>
+    <!-- Data-source toggle: Meta Ads (default) vs Google Ads. Stays visible
+         in both modes so the user can always switch back. Reuses .view-tab
+         styling for visual consistency with the compliance tabs. -->
+    <div id="sourceToggle" class="ml-auto flex items-center gap-1 shrink-0">
+      <button id="srcMetaBtn"     class="view-tab active" onclick="switchSource('meta')">Meta Ads</button>
+      <button id="srcGoogleBtn"   class="view-tab"        onclick="switchSource('google')">Google Ads</button>
+      <button id="srcCombinedBtn" class="view-tab"        onclick="switchSource('combined')">Combined</button>
+    </div>
   </div>
 </div>
 
@@ -204,10 +215,26 @@
   <!--    Section 2 — Ad Set Level   (granular breakdown)        -->
   <!--  Each row shows % compliant for its entity.               -->
   <!-- ══════════════════════════════════════════════════════════ -->
-  <div class="flex items-center gap-3">
+  <div id="matrixScopeRow" class="flex items-center gap-3">
     <span id="matrixScope" class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">0 campaigns · 0 ad sets</span>
   </div>
   <div id="hierarchyHost"></div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  GOOGLE ADS VIEW (shown only when APP.source === 'google')  -->
+  <!--  Same KPI-card + table visual system as the Meta view,      -->
+  <!--  mapped to the /google-ads Worker response fields.          -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="gadsKpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3"></div>
+  <div id="gadsHost" class="hidden mt-5"></div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  COMBINED VIEW (shown only when APP.source === 'combined')  -->
+  <!--  Merged Meta + Google KPI cards + a side-by-side metric     -->
+  <!--  comparison table. Same card/table visual system.           -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="combinedKpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3"></div>
+  <div id="combinedHost" class="hidden mt-5"></div>
 
 </main><!-- /main -->
 
@@ -482,6 +509,10 @@ const APP = {
   setupRules:         [],        // [{kpi, target}, …] parsed from Setup sheet
   deliveryCollapsed:  {},        // { active|learning|inactive|completed: true } when collapsed
   ga4:                { totals: null, byCampaign: {}, error: null, loading: false },
+  source:             'meta',      // 'meta' | 'google' | 'combined' — top-level data source toggle
+  gads:               { totals: null, campaigns: [], meta: null, error: null, loading: false },
+  gadsUI:             { filter: 'all', sortKey: 'spend', sortDir: 'desc' },  // Google Ads table filter/sort (client-side)
+  combinedLoading:    false,       // true while Combined is fetching a missing source
   setupOverrides:     {},        // { 'setup_age_0': '22-55', … } — local per-rule target overrides
   accountInfo:        null,      // { timezone_name, currency } — fetched once for TZ-correct dates
   campaignInsightsList: []       // flat list of campaign-level insight rows for accurate totals
@@ -3395,8 +3426,32 @@ function renderAll() {
   else                         { renderHierarchy(); }   /* calls renderKPIs() itself */
 }
 
+/* Roll up Meta campaign-level insights into a single normalized totals
+   object. Single source of truth for the Meta KPI strip AND the Combined
+   view, so the two can never drift. See renderKPIs() for why we roll up at
+   campaign level only (ad-set rows would double-count). */
+function computeMetaTotals() {
+  const all = (APP.campaignInsightsList && APP.campaignInsightsList.length)
+    ? APP.campaignInsightsList
+    : APP.campaigns.map(x => APP.insights[x.id]).filter(Boolean);
+  const spend           = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
+  const impressions     = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
+  const clicks          = all.reduce((s,i) => s + parseInt(i.clicks||0,10), 0);
+  const linkClicks      = all.reduce((s,i) => s + parseInt(i.inline_link_clicks||0,10), 0);
+  const conversions     = all.reduce((s,i) => s + parseConversions(i.actions), 0);
+  const conversionValue = all.reduce((s,i) => s + _revenue(i), 0);
+  return {
+    spend, impressions, clicks, linkClicks, conversions, conversionValue,
+    ctr:  impressions > 0 ? clicks / impressions * 100 : 0,
+    cpm:  impressions > 0 ? spend / impressions * 1000 : 0,
+    roas: spend > 0 ? conversionValue / spend : null,
+    rowCount: all.length
+  };
+}
+
 function renderKPIs() {
   const row = document.getElementById('kpiRow');
+  if (APP.source !== 'meta')      { row.classList.add('hidden'); return; }
   if (APP.view !== 'performance') { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
 
@@ -3416,18 +3471,16 @@ function renderKPIs() {
   /* Source of truth = the campaign-level insights rows Meta returned for
      the date range. Includes archived/deleted campaigns that aren't in
      APP.campaigns (which is restricted to ACTIVE/PAUSED for the UI). */
-  const all = (APP.campaignInsightsList && APP.campaignInsightsList.length)
-    ? APP.campaignInsightsList
-    : APP.campaigns.map(x => APP.insights[x.id]).filter(Boolean);
-  const totalSpend   = all.reduce((s,i) => s + parseFloat(i.spend||0), 0);
-  const totalImpr    = all.reduce((s,i) => s + parseInt(i.impressions||0,10), 0);
-  const totalClk     = all.reduce((s,i) => s + parseInt(i.clicks||0,10), 0);
-  const totalLinkClk = all.reduce((s,i) => s + parseInt(i.inline_link_clicks||0,10), 0);
-  const avgCTR       = totalImpr > 0 ? totalClk / totalImpr * 100 : 0;
-  const cpm          = totalImpr > 0 ? totalSpend / totalImpr * 1000 : 0;  /* derived; matches Meta CPM */
-  const totalConv    = all.reduce((s,i) => s + parseConversions(i.actions), 0);
-  const totalRev     = all.reduce((s,i) => s + _revenue(i), 0);
-  const roas         = totalSpend > 0 ? totalRev / totalSpend : null;
+  const mt           = computeMetaTotals();
+  const totalSpend   = mt.spend;
+  const totalImpr    = mt.impressions;
+  const totalClk     = mt.clicks;
+  const totalLinkClk = mt.linkClicks;
+  const avgCTR       = mt.ctr;
+  const cpm          = mt.cpm;
+  const totalConv    = mt.conversions;
+  const totalRev     = mt.conversionValue;
+  const roas         = mt.roas;
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
   const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
@@ -3668,7 +3721,15 @@ function selectPreset(preset) {
   APP.since = range.since;
   APP.until = range.until;
   updateDpTriggerLabel();
+  refetchForDateChange();
+}
 
+/* Single entry point for "the date range changed, go get data for whatever
+   source/view is active." Meta: re-fetch insights if structure is already
+   loaded, else a full load. Google: re-fetch the /google-ads totals. */
+function refetchForDateChange() {
+  if (APP.source === 'google')   { loadGoogleAds(); return; }
+  if (APP.source === 'combined') { loadCombined(true); return; }
   /* re-fetch insights only if structure is already loaded */
   if (APP.view === 'performance' && APP.campaigns.length > 0) {
     APP.insights = {};
@@ -3753,13 +3814,7 @@ function pickDay(iso) {
   APP.datePreset = 'custom';
   updateDpTriggerLabel();
   closeDatePicker();
-
-  if (APP.view === 'performance' && APP.campaigns.length > 0) {
-    APP.insights = {};
-    loadInsights();
-  } else {
-    loadData();
-  }
+  refetchForDateChange();
 }
 
 function dpHover(iso) {
@@ -3838,12 +3893,7 @@ function pickDayDouble(iso) {
   PICKER.hoverDate = null;
   updateDpTriggerLabel();
   closeDatePicker();
-  if (APP.view === 'performance' && APP.campaigns.length > 0) {
-    APP.insights = {};
-    loadInsights();
-  } else {
-    loadData();
-  }
+  refetchForDateChange();
 }
 
 function clearPending() {
@@ -3946,6 +3996,533 @@ function switchView(view) {
 function togglePaused(checked) {
   APP.showPaused = !!checked;
   renderAll();
+}
+
+/* Refresh button dispatcher — hits whatever source is active. */
+function refreshCurrent() {
+  if (APP.source === 'google')        loadGoogleAds();
+  else if (APP.source === 'combined') loadCombined(true);
+  else                                loadData();
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  10c. GOOGLE ADS SOURCE                                        */
+/*  Top-level toggle between the Meta compliance dashboard and a  */
+/*  Google Ads performance view. Google data comes from the SAME  */
+/*  Cloudflare Worker as GA4 (CONFIG.GA4_WORKER_URL), on the      */
+/*  /google-ads route, using the same since/until date range.     */
+/* ══════════════════════════════════════════════════════════════ */
+function switchSource(src) {
+  APP.source = src;
+  const isMeta = src === 'meta', isG = src === 'google', isC = src === 'combined';
+  document.getElementById('srcMetaBtn').classList.toggle('active',     isMeta);
+  document.getElementById('srcGoogleBtn').classList.toggle('active',   isG);
+  document.getElementById('srcCombinedBtn').classList.toggle('active', isC);
+
+  /* Show/hide the Meta chrome vs the Google / Combined containers. The
+     source toggle itself lives outside #viewTabsBtns so it stays visible. */
+  const show = (id, visible) =>
+    document.getElementById(id).classList.toggle('hidden', !visible);
+  show('viewTabsBtns',   isMeta);
+  show('toolbarRow',     isMeta);   /* search / paused / export are Meta-only */
+  show('matrixScopeRow', isMeta);
+  show('hierarchyHost',  isMeta);
+  show('kpiRow',         false);    /* renderKPIs re-shows it for Meta/Performance */
+  show('gadsKpiRow',     isG);
+  show('gadsHost',       isG);
+  show('combinedKpiRow', isC);
+  show('combinedHost',   isC);
+
+  if (isG) {
+    renderGoogleAds();                 /* paint current state / skeleton */
+    if (!APP.gads.loading) loadGoogleAds();   /* fetch fresh for the current range */
+  } else if (isC) {
+    loadCombined(false);               /* reuse loaded data; fetch only what's missing */
+  } else {
+    renderAll();                       /* restores Meta view (re-shows kpiRow if Performance) */
+  }
+}
+
+/* Fetch Google Ads totals + per-campaign rows from the Worker. Mirrors
+   loadGa4(): the Worker holds the Google Ads API credentials so the
+   browser never sees them. */
+async function loadGoogleAds() {
+  APP.gads.error = null;
+  const base = CONFIG.GA4_WORKER_URL;
+  if (!base) {
+    APP.gads.totals = null; APP.gads.campaigns = []; APP.gads.meta = null;
+    APP.gads.error = 'not_configured';
+    if (APP.source === 'google') renderGoogleAds();
+    return;
+  }
+  if (!APP.since || !APP.until) return;
+  APP.gads.loading = true;
+  if (APP.source === 'google') renderGoogleAds();   /* skeleton */
+  try {
+    const u = new URL(base.replace(/\/+$/, '') + '/google-ads');
+    u.searchParams.set('since', APP.since);
+    u.searchParams.set('until', APP.until);
+    const r = await fetch(u.toString(), { cache: 'no-store' });
+    const data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || `Worker HTTP ${r.status}`);
+    APP.gads.totals    = data.totals    || null;
+    APP.gads.campaigns = data.campaigns || [];
+    APP.gads.meta      = data.meta      || null;
+  } catch (e) {
+    console.warn('Google Ads load failed:', e.message);
+    APP.gads.totals = null; APP.gads.campaigns = []; APP.gads.meta = null;
+    APP.gads.error = e.message;
+  } finally {
+    APP.gads.loading = false;
+    if (APP.source === 'google') renderGoogleAds();
+  }
+}
+
+/* Shared KPI-card markup — identical classes to the static Meta cards in
+   #kpiRow, so both sources render in exactly the same visual style. */
+function kpiCardHTML(label, value, opts = {}) {
+  const mono = opts.mono ? ' font-mono' : '';
+  const title = opts.title ? ` title="${escH(opts.title)}"` : '';
+  return `
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5"${title}>${escH(label)}</div>
+      <div class="text-lg sm:text-xl font-semibold${mono} text-slate-800 dark:text-slate-100">${value}</div>
+    </div>`;
+}
+
+/* Format helpers reused across the Google KPI cards + table. */
+function _gInt(n)  { return Number(n || 0).toLocaleString('en-IN'); }
+function _gMoney(n){ return `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+function _gMoney0(n){ return `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`; }
+
+/* Map Google Ads campaign status to the Meta status vocabulary so we can
+   reuse statusBadge() (and its already-compiled colour classes). */
+function _gStatusBadge(s) {
+  const map = { ENABLED: 'ACTIVE', PAUSED: 'PAUSED', REMOVED: 'DELETED' };
+  return statusBadge(map[String(s || '').toUpperCase()] || 'ARCHIVED');
+}
+
+/* Google Ads table filter/sort — pure client-side over already-fetched
+   campaigns. Status pills map the app's friendly labels to the Google Ads
+   status vocabulary carried on each campaign object. */
+const GADS_STATUS = [
+  { key: 'all',     label: 'All'     },
+  { key: 'ENABLED', label: 'Active'  },
+  { key: 'PAUSED',  label: 'Paused'  },
+  { key: 'REMOVED', label: 'Removed' },
+];
+const GADS_SORTS = [
+  { key: 'spend',           label: 'Spend'       },
+  { key: 'impressions',     label: 'Impressions' },
+  { key: 'clicks',          label: 'Clicks'      },
+  { key: 'ctr',             label: 'CTR'         },
+  { key: 'conversions',     label: 'Conversions' },
+  { key: 'conversionValue', label: 'Conv. Value' },
+  { key: 'roas',            label: 'ROAS'        },
+];
+
+function setGadsFilter(status) { APP.gadsUI.filter = status; renderGoogleAds(); }
+function setGadsSortKey(key) {
+  /* Changing the metric resets to high-to-low; same metric keeps direction. */
+  if (APP.gadsUI.sortKey !== key) { APP.gadsUI.sortKey = key; APP.gadsUI.sortDir = 'desc'; }
+  renderGoogleAds();
+}
+function toggleGadsSortDir() {
+  APP.gadsUI.sortDir = APP.gadsUI.sortDir === 'desc' ? 'asc' : 'desc';
+  renderGoogleAds();
+}
+
+/* Apply the current filter + sort to the fetched campaign list. */
+function _gadsVisibleRows() {
+  const ui = APP.gadsUI;
+  let rows = (APP.gads.campaigns || []).slice();
+  if (ui.filter !== 'all') {
+    rows = rows.filter(c => String(c.status || '').toUpperCase() === ui.filter);
+  }
+  const k = ui.sortKey, dir = ui.sortDir === 'desc' ? -1 : 1;
+  rows.sort((a, b) => dir * ((Number(a[k]) || 0) - (Number(b[k]) || 0)));
+  return rows;
+}
+
+function _gadsControlsHTML() {
+  const ui = APP.gadsUI;
+  const pills = GADS_STATUS.map(s => {
+    const active = ui.filter === s.key;
+    const cls = active
+      ? 'border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-700/50 text-slate-800 dark:text-slate-100'
+      : 'border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 hover:border-slate-400/60';
+    return `<button onclick="setGadsFilter('${s.key}')" class="px-2.5 py-1 text-xs font-medium rounded-lg border transition ${cls}">${s.label}</button>`;
+  }).join('');
+  const opts  = GADS_SORTS.map(o => `<option value="${o.key}"${ui.sortKey === o.key ? ' selected' : ''}>${o.label}</option>`).join('');
+  const arrow = ui.sortDir === 'desc' ? '↓' : '↑';
+  const arrowTitle = ui.sortDir === 'desc' ? 'High to low — click to flip' : 'Low to high — click to flip';
+  return `
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <div class="flex items-center gap-1">${pills}</div>
+      <div class="flex items-center gap-1.5 sm:ml-auto">
+        <span class="text-[11px] font-medium text-slate-400 dark:text-slate-500">Sort by</span>
+        <select onchange="setGadsSortKey(this.value)" class="text-xs rounded-lg border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 px-2 py-1 outline-none focus:ring-2 focus:ring-slate-400/60 cursor-pointer">${opts}</select>
+        <button onclick="toggleGadsSortDir()" title="${arrowTitle}" aria-label="${arrowTitle}" class="w-7 h-7 inline-flex items-center justify-center text-sm rounded-lg border border-slate-200/70 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 hover:border-slate-400/60 transition">${arrow}</button>
+      </div>
+    </div>`;
+}
+
+function renderGoogleAds() {
+  const kpiRow = document.getElementById('gadsKpiRow');
+  const host   = document.getElementById('gadsHost');
+  if (!kpiRow || !host) return;
+  const g = APP.gads;
+
+  /* ── Error / not-configured state ── */
+  if (g.error) {
+    const msg = g.error === 'not_configured'
+      ? 'Google Ads is not configured. Set <span class="font-mono">GA4_WORKER_URL</span> in <span class="font-mono">config.js</span> — the Worker serves Google Ads on its <span class="font-mono">/google-ads</span> route.'
+      : `Google Ads load failed: ${escH(g.error)}`;
+    kpiRow.innerHTML = '';
+    host.innerHTML = `
+      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400 bg-white/80 dark:bg-slate-800/30">
+        ${msg}
+      </div>`;
+    return;
+  }
+
+  /* ── Loading skeleton ── */
+  if (g.loading && !g.totals) {
+    kpiRow.innerHTML = Array.from({ length: 8 }).map(() =>
+      kpiCardHTML('', '<span class="skeleton inline-block w-16 h-5 rounded"></span>')
+    ).join('');
+    host.innerHTML = `
+      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+        <table class="w-full"><tbody>${skeletonMatrixRows(6)}</tbody></table>
+      </div>`;
+    return;
+  }
+
+  const t = g.totals || {};
+  const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
+  const roas  = Number(t.roas || 0);
+
+  /* ── KPI cards — mapped 1:1 to the /google-ads totals fields ── */
+  kpiRow.innerHTML = [
+    kpiCardHTML('Impressions', _gInt(t.impressions)),
+    kpiCardHTML('Clicks',      _gInt(t.clicks)),
+    kpiCardHTML('CTR', `${Number(t.ctr || 0).toFixed(2)}%`, { title: 'Clicks ÷ impressions' }),
+    kpiCardHTML('Avg. CPC', _gMoney(t.cpc), { mono: true, title: 'Average cost per click' }),
+    kpiCardHTML('Total Spend', _gMoney(t.spend), { mono: true }),
+    kpiCardHTML('Conv. Value', Number(t.conversionValue) > 0 ? _gMoney0(t.conversionValue) : muted, { mono: true, title: 'Total conversion value' }),
+    kpiCardHTML('Conversions', _gInt(t.conversions)),
+    kpiCardHTML('ROAS', roas > 0 ? `${roas.toFixed(2)}×` : muted, { mono: true, title: 'Conversion value ÷ spend' }),
+  ].join('');
+
+  /* ── Per-campaign performance table ── */
+  const all  = g.campaigns || [];
+  const meta = g.meta || {};
+
+  /* No campaigns at all for this range — nothing to filter/sort. */
+  if (!all.length) {
+    host.innerHTML = `
+      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-400 dark:text-slate-500 bg-white/80 dark:bg-slate-800/30">
+        No Google Ads campaigns with data in this date range.
+      </div>`;
+    return;
+  }
+
+  const rows  = _gadsVisibleRows();
+  const scope = `${rows.length}${rows.length !== all.length ? ` of ${all.length}` : ''} campaign${all.length === 1 ? '' : 's'}${meta.customerId ? ` · ${escH(meta.customerId)}` : ''}`;
+
+  const numCell = 'px-3 py-2.5 text-right text-sm text-slate-700 dark:text-slate-200 whitespace-nowrap';
+  const th = 'px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500';
+  const body = rows.length ? rows.map(c => {
+    const r = Number(c.roas || 0);
+    return `
+      <tr class="border-t border-slate-100 dark:border-slate-800/60 hover:bg-slate-50/60 dark:hover:bg-slate-800/30">
+        <td class="px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100 max-w-[240px] truncate" title="${escH(c.name)}">${escH(c.name)}</td>
+        <td class="px-3 py-2.5">${_gStatusBadge(c.status)}</td>
+        <td class="${numCell} font-mono">${_gMoney(c.spend)}</td>
+        <td class="${numCell}">${_gInt(c.impressions)}</td>
+        <td class="${numCell}">${_gInt(c.clicks)}</td>
+        <td class="${numCell}">${Number(c.ctr || 0).toFixed(2)}%</td>
+        <td class="${numCell} font-mono">${_gMoney(c.cpc)}</td>
+        <td class="${numCell}">${_gInt(c.conversions)}</td>
+        <td class="${numCell} font-mono">${Number(c.conversionValue) > 0 ? _gMoney0(c.conversionValue) : '<span class="text-slate-400 dark:text-slate-500">—</span>'}</td>
+        <td class="${numCell} font-mono">${r > 0 ? r.toFixed(2) + '×' : '<span class="text-slate-400 dark:text-slate-500">—</span>'}</td>
+      </tr>`;
+  }).join('')
+  : `<tr><td colspan="10" class="px-3 py-8 text-center text-sm text-slate-400 dark:text-slate-500">No campaigns match this filter.</td></tr>`;
+
+  host.innerHTML = `
+    <div class="flex items-center gap-3 mb-3">
+      <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">${scope}</span>
+      ${g.loading ? '<span class="text-[11px] text-slate-400 dark:text-slate-500">refreshing…</span>' : ''}
+    </div>
+    ${_gadsControlsHTML()}
+    <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-x-auto bg-white/80 dark:bg-slate-800/30">
+      <table class="w-full">
+        <thead>
+          <tr class="text-left">
+            <th class="${th}">Campaign</th>
+            <th class="${th}">Status</th>
+            <th class="${th} text-right">Spend</th>
+            <th class="${th} text-right">Impr.</th>
+            <th class="${th} text-right">Clicks</th>
+            <th class="${th} text-right">CTR</th>
+            <th class="${th} text-right">CPC</th>
+            <th class="${th} text-right">Conv.</th>
+            <th class="${th} text-right">Conv. Value</th>
+            <th class="${th} text-right">ROAS</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/*  10d. COMBINED SOURCE (Meta + Google)                          */
+/*  Merges the totals already fetched for each source. No merged   */
+/*  campaign list — Meta and Google campaigns aren't 1:1 — just a  */
+/*  metric-by-metric comparison + blended KPI cards.               */
+/* ══════════════════════════════════════════════════════════════ */
+
+/* Per-source availability, derived straight from existing state (no extra
+   flags). Returns { ok, totals } or { ok:false, reason }. */
+function metaColumnState() {
+  if (!isConfigured())        return { ok: false, reason: 'not configured' };
+  const t = computeMetaTotals();
+  if (t.rowCount === 0)       return { ok: false, reason: 'no data' };
+  return { ok: true, totals: t };
+}
+function googleColumnState() {
+  const g = APP.gads;
+  if (g.error === 'not_configured') return { ok: false, reason: 'not configured' };
+  if (g.error)                      return { ok: false, reason: 'error' };
+  if (!g.totals)                    return { ok: false, reason: 'no data' };
+  const t = g.totals;
+  return { ok: true, totals: {
+    spend:           Number(t.spend || 0),
+    impressions:     Number(t.impressions || 0),
+    clicks:          Number(t.clicks || 0),
+    conversions:     Number(t.conversions || 0),
+    conversionValue: Number(t.conversionValue || 0),
+    /* recompute ctr/roas from raw so the math matches Meta's exactly */
+    ctr:  Number(t.impressions) > 0 ? Number(t.clicks) / Number(t.impressions) * 100 : 0,
+    roas: Number(t.spend) > 0 ? Number(t.conversionValue) / Number(t.spend) : null
+  } };
+}
+
+/* Ensure both sources are loaded, then render. `force` refetches both
+   (date change / refresh); otherwise fetch only what's missing so we
+   don't re-hit the network for data already loaded this session. */
+async function loadCombined(force) {
+  const metaHas   = computeMetaTotals().rowCount > 0;
+  const googleHas = !!APP.gads.totals || !!APP.gads.error;
+
+  const tasks = [];
+  if ((force || !metaHas) && isConfigured() && APP.since && APP.until) {
+    APP.insights = {};
+    tasks.push(loadInsights());          /* populates APP.campaignInsightsList */
+  }
+  if (force || !googleHas) {
+    tasks.push(loadGoogleAds());         /* populates APP.gads */
+  }
+
+  APP.combinedLoading = tasks.length > 0;
+  if (APP.source === 'combined') renderCombined();   /* skeleton / current */
+
+  if (tasks.length) {
+    /* allSettled so one source failing doesn't block the other's column */
+    await Promise.allSettled(tasks);
+  }
+  APP.combinedLoading = false;
+  if (APP.source === 'combined') renderCombined();
+}
+
+/* Plain-English "business performance" read-out, generated ONLY from the
+   totals already computed for the two columns. No forecasts, no
+   recommendations, no invented metrics — and any thin sample is flagged
+   rather than spun into a confident signal. Returns '' when there's
+   nothing honest to say. */
+function combinedInsightsHTML(meta, goog) {
+  const mT = meta.ok ? meta.totals : null;
+  const gT = goog.ok ? goog.totals : null;
+  const lines = [];
+
+  /* 1. Spend distribution + inline two-segment bar. */
+  const mSpend = mT ? mT.spend : 0, gSpend = gT ? gT.spend : 0;
+  const totalSpend = mSpend + gSpend;
+  if (totalSpend > 0) {
+    const mPct = mSpend / totalSpend * 100, gPct = gSpend / totalSpend * 100;
+    lines.push(`
+      <div>
+        <div class="text-sm text-slate-700 dark:text-slate-200">
+          <span class="font-semibold">Spend split:</span>
+          ${mPct.toFixed(1)}% Meta · ${gPct.toFixed(1)}% Google
+          <span class="text-slate-400 dark:text-slate-500">(of ${_gMoney0(totalSpend)})</span>
+        </div>
+        <div class="flex h-2 w-full max-w-xs rounded-full overflow-hidden mt-1.5 bg-slate-200 dark:bg-slate-700">
+          <div class="bg-slate-600 dark:bg-slate-300" style="width:${mPct.toFixed(1)}%" title="Meta ${mPct.toFixed(1)}%"></div>
+          <div class="bg-slate-400 dark:bg-slate-500" style="width:${gPct.toFixed(1)}%" title="Google ${gPct.toFixed(1)}%"></div>
+        </div>
+      </div>`);
+  }
+
+  /* 2. ROAS efficiency — only where conversion value actually exists. */
+  const mRoas = mT && mT.spend > 0 ? mT.roas : null;
+  const gRoas = gT && gT.spend > 0 ? gT.roas : null;
+  const mHasRet = mT && mT.conversionValue > 0 && mRoas !== null;
+  const gHasRet = gT && gT.conversionValue > 0 && gRoas !== null;
+  let roasLine = '';
+  if (mHasRet && gHasRet) {
+    const rel = Math.abs(mRoas - gRoas) / Math.max(mRoas, gRoas);
+    if (rel < 0.05) {
+      roasLine = `Meta and Google are performing similarly by ROAS (${mRoas.toFixed(2)}× vs ${gRoas.toFixed(2)}×) this period.`;
+    } else {
+      const metaWins = mRoas > gRoas;
+      const win  = metaWins ? { n: 'Meta Ads',   r: mRoas } : { n: 'Google Ads', r: gRoas };
+      const lose = metaWins ? { n: 'Google Ads', r: gRoas } : { n: 'Meta Ads',   r: mRoas };
+      roasLine = `<span class="font-semibold">${win.n} ROAS (${win.r.toFixed(2)}×)</span> is outperforming ${lose.n} (${lose.r.toFixed(2)}×) for this period.`;
+    }
+  } else if (mHasRet || gHasRet) {
+    const who   = mHasRet ? { n: 'Meta Ads',   r: mRoas } : { n: 'Google Ads', r: gRoas };
+    const other = mHasRet ? 'Google Ads' : 'Meta Ads';
+    roasLine = `Only ${who.n} has generated conversion value this period (ROAS ${who.r.toFixed(2)}×). ${other} has none yet, so ROAS can't be compared.`;
+  } else {
+    roasLine = `Neither platform has generated conversion value yet this period — no ROAS comparison to draw.`;
+  }
+  lines.push(`<div class="text-sm text-slate-700 dark:text-slate-200">${roasLine}</div>`);
+
+  /* 3. Small-sample caveats — flag thin conversion counts plainly. */
+  const SMALL = 10;
+  const caveats = [];
+  [['Meta Ads', mT], ['Google Ads', gT]].forEach(([name, t]) => {
+    if (t && t.conversions > 0 && t.conversions < SMALL) {
+      caveats.push(`${name} has just ${t.conversions} conversion${t.conversions === 1 ? '' : 's'} so far — a very small sample; don't read too much into its ROAS.`);
+    }
+  });
+  if (caveats.length) {
+    lines.push(`<div class="text-[12px] text-amber-600 dark:text-amber-400">⚠ ${caveats.join(' ')}</div>`);
+  }
+
+  if (!lines.length) return '';
+  return `
+    <div class="mt-5 rounded-2xl border border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-slate-800/30 p-4 sm:p-5 space-y-3">
+      <div class="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Business performance</div>
+      ${lines.join('')}
+    </div>`;
+}
+
+function renderCombined() {
+  const kpiRow = document.getElementById('combinedKpiRow');
+  const host   = document.getElementById('combinedHost');
+  if (!kpiRow || !host) return;
+
+  const meta = metaColumnState();
+  const goog = googleColumnState();
+
+  /* ── Loading skeleton (first load, nothing to show yet) ── */
+  if (APP.combinedLoading && !meta.ok && !goog.ok) {
+    kpiRow.innerHTML = Array.from({ length: 7 }).map(() =>
+      kpiCardHTML('', '<span class="skeleton inline-block w-16 h-5 rounded"></span>')
+    ).join('');
+    host.innerHTML = `
+      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
+        <table class="w-full"><tbody>${skeletonMatrixRows(7)}</tbody></table>
+      </div>`;
+    return;
+  }
+
+  /* ── Both sources unavailable ── */
+  if (!meta.ok && !goog.ok) {
+    kpiRow.innerHTML = '';
+    host.innerHTML = `
+      <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400 bg-white/80 dark:bg-slate-800/30">
+        Neither source is available — Meta: ${escH(meta.reason)}, Google: ${escH(goog.reason)}.
+      </div>`;
+    return;
+  }
+
+  /* ── Combined totals = sum of AVAILABLE sources only ── */
+  const parts = [meta, goog].filter(s => s.ok).map(s => s.totals);
+  const sum = f => parts.reduce((a, t) => a + Number(t[f] || 0), 0);
+  const cSpend = sum('spend'), cImpr = sum('impressions'), cClk = sum('clicks');
+  const cConv = sum('conversions'), cVal = sum('conversionValue');
+  const cCTR  = cImpr > 0 ? cClk / cImpr * 100 : 0;
+  const cROAS = cSpend > 0 ? cVal / cSpend : null;
+
+  const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
+
+  /* ── Merged KPI cards ── */
+  kpiRow.innerHTML = [
+    kpiCardHTML('Total Spend',   _gMoney(cSpend), { mono: true }),
+    kpiCardHTML('Impressions',   _gInt(cImpr)),
+    kpiCardHTML('Clicks',        _gInt(cClk)),
+    kpiCardHTML('Blended CTR',   `${cCTR.toFixed(2)}%`, { title: 'Combined clicks ÷ combined impressions' }),
+    kpiCardHTML('Conversions',   _gInt(cConv)),
+    kpiCardHTML('Conv. Value',   cVal > 0 ? _gMoney0(cVal) : muted, { mono: true }),
+    kpiCardHTML('Blended ROAS',  cROAS !== null && cVal > 0 ? `${cROAS.toFixed(2)}×` : muted, { mono: true, title: 'Combined conversion value ÷ combined spend' }),
+  ].join('');
+
+  /* ── Comparison table cells ── */
+  const na = '<span class="text-slate-400 dark:text-slate-500 italic">unavailable</span>';
+  const money  = (s, f) => s.ok ? _gMoney(s.totals[f]) : na;
+  const money0 = (s, f) => s.ok ? (Number(s.totals[f]) > 0 ? _gMoney0(s.totals[f]) : muted) : na;
+  const int    = (s, f) => s.ok ? _gInt(s.totals[f]) : na;
+  const pct    = (s, f) => s.ok ? `${Number(s.totals[f] || 0).toFixed(2)}%` : na;
+  const roas   = (s)    => s.ok ? (s.totals.roas !== null && Number(s.totals.conversionValue) > 0 ? `${Number(s.totals.roas).toFixed(2)}×` : muted) : na;
+
+  const th   = 'px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500';
+  const lbl  = 'px-3 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200';
+  const cell = 'px-3 py-2.5 text-right text-sm text-slate-700 dark:text-slate-200 whitespace-nowrap';
+  const ccell= cell + ' font-semibold';
+
+  const rows = [
+    { label: 'Spend',       meta: money(meta,'spend'),          goog: money(goog,'spend'),          comb: `<span class="font-mono">${_gMoney(cSpend)}</span>`, mono: true },
+    { label: 'Impressions', meta: int(meta,'impressions'),      goog: int(goog,'impressions'),      comb: _gInt(cImpr) },
+    { label: 'Clicks',      meta: int(meta,'clicks'),           goog: int(goog,'clicks'),           comb: _gInt(cClk) },
+    { label: 'CTR',         meta: pct(meta,'ctr'),              goog: pct(goog,'ctr'),              comb: `${cCTR.toFixed(2)}%` },
+    { label: 'Conversions', meta: int(meta,'conversions'),      goog: int(goog,'conversions'),      comb: _gInt(cConv) },
+    { label: 'Conv. Value', meta: money0(meta,'conversionValue'),goog: money0(goog,'conversionValue'),comb: cVal > 0 ? `<span class="font-mono">${_gMoney0(cVal)}</span>` : muted },
+    { label: 'ROAS',        meta: roas(meta),                   goog: roas(goog),                   comb: cROAS !== null && cVal > 0 ? `${cROAS.toFixed(2)}×` : muted },
+  ];
+
+  const body = rows.map(r => `
+    <tr class="border-t border-slate-100 dark:border-slate-800/60">
+      <td class="${lbl}">${r.label}</td>
+      <td class="${cell}${r.mono ? ' font-mono' : ''}">${r.meta}</td>
+      <td class="${cell}${r.mono ? ' font-mono' : ''}">${r.goog}</td>
+      <td class="${ccell}">${r.comb}</td>
+    </tr>`).join('');
+
+  /* Note when a column was dropped from the Combined sum. */
+  const dropped = [];
+  if (!meta.ok) dropped.push(`Meta (${escH(meta.reason)})`);
+  if (!goog.ok) dropped.push(`Google (${escH(goog.reason)})`);
+  const note = dropped.length
+    ? `<div class="mt-2 text-[11px] text-amber-600 dark:text-amber-400">Combined excludes: ${dropped.join(', ')}.</div>`
+    : '';
+  const refreshing = APP.combinedLoading
+    ? '<span class="text-[11px] text-slate-400 dark:text-slate-500">refreshing…</span>' : '';
+
+  host.innerHTML = `
+    <div class="flex items-center gap-3 mb-3">
+      <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">Meta + Google · side-by-side</span>
+      ${refreshing}
+    </div>
+    <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-x-auto bg-white/80 dark:bg-slate-800/30">
+      <table class="w-full">
+        <thead>
+          <tr class="text-left">
+            <th class="${th}">Metric</th>
+            <th class="${th} text-right">Meta Ads</th>
+            <th class="${th} text-right">Google Ads</th>
+            <th class="${th} text-right">Combined</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    ${note}
+    ${combinedInsightsHTML(meta, goog)}`;
 }
 
 
