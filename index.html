@@ -202,6 +202,10 @@
       <div id="kpiConversions" class="text-lg sm:text-xl font-semibold text-slate-800 dark:text-slate-100">—</div>
     </div>
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
+      <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Customer Acquisition Cost — Spend ÷ Conversions">CAC</div>
+      <div id="kpiCACMeta" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
+    </div>
+    <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5" title="Revenue ÷ Spend">ROAS</div>
       <div id="kpiROAS" class="text-lg sm:text-xl font-semibold font-mono text-slate-800 dark:text-slate-100">—</div>
     </div>
@@ -3494,6 +3498,7 @@ function renderKPIs() {
   set('kpiSpend',         `₹${totalSpend.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
   set('kpiPurchaseValue', totalRev > 0 ? `₹${totalRev.toLocaleString('en-IN',{maximumFractionDigits:0})}` : muted);
   set('kpiConversions',   totalConv.toLocaleString('en-IN'));
+  set('kpiCACMeta',       totalConv > 0 ? _gMoney(totalSpend / totalConv) : muted);
   set('kpiROAS',          (roas !== null && totalRev > 0) ? `${roas.toFixed(2)}×` : muted);
 
   /* ── GA4 metrics (4 cards) — populate from Cloudflare proxy worker ── */
@@ -3674,7 +3679,7 @@ async function loadInsights() {
   if (!APP.since || !APP.until) return;
 
   /* KPI skeleton */
-  ['kpiImpressions','kpiClicks','kpiCTR','kpiLinkClicks','kpiSessions','kpiEngagedSessions','kpiEngagementRate','kpiBounceRate','kpiCPM','kpiSpend','kpiPurchaseValue','kpiConversions','kpiROAS'].forEach(id => {
+  ['kpiImpressions','kpiClicks','kpiCTR','kpiLinkClicks','kpiSessions','kpiEngagedSessions','kpiEngagementRate','kpiBounceRate','kpiCPM','kpiSpend','kpiPurchaseValue','kpiConversions','kpiCACMeta','kpiROAS'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<span class="skeleton inline-block w-16 h-5 rounded"></span>';
   });
@@ -4083,10 +4088,11 @@ async function loadGoogleAds() {
 function kpiCardHTML(label, value, opts = {}) {
   const mono = opts.mono ? ' font-mono' : '';
   const title = opts.title ? ` title="${escH(opts.title)}"` : '';
+  const id = opts.id ? ` id="${escH(opts.id)}"` : '';
   return `
     <div class="bg-white/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/40 p-3 sm:p-4">
       <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5"${title}>${escH(label)}</div>
-      <div class="text-lg sm:text-xl font-semibold${mono} text-slate-800 dark:text-slate-100">${value}</div>
+      <div${id} class="text-lg sm:text-xl font-semibold${mono} text-slate-800 dark:text-slate-100">${value}</div>
     </div>`;
 }
 
@@ -4211,6 +4217,7 @@ function renderGoogleAds() {
     kpiCardHTML('Total Spend', _gMoney(t.spend), { mono: true }),
     kpiCardHTML('Conv. Value', Number(t.conversionValue) > 0 ? _gMoney0(t.conversionValue) : muted, { mono: true, title: 'Total conversion value' }),
     kpiCardHTML('Conversions', _gInt(t.conversions)),
+    kpiCardHTML('CAC', Number(t.conversions) > 0 ? _gMoney(Number(t.spend) / Number(t.conversions)) : muted, { mono: true, id: 'kpiCACGoogle', title: 'Customer Acquisition Cost — spend ÷ conversions' }),
     kpiCardHTML('ROAS', roas > 0 ? `${roas.toFixed(2)}×` : muted, { mono: true, title: 'Conversion value ÷ spend' }),
   ].join('');
 
@@ -4458,6 +4465,7 @@ function renderCombined() {
     kpiCardHTML('Clicks',        _gInt(cClk)),
     kpiCardHTML('Blended CTR',   `${cCTR.toFixed(2)}%`, { title: 'Combined clicks ÷ combined impressions' }),
     kpiCardHTML('Conversions',   _gInt(cConv)),
+    kpiCardHTML('Blended CAC',   cConv > 0 ? _gMoney(cSpend / cConv) : muted, { mono: true, id: 'kpiCACCombined', title: 'Combined spend ÷ combined conversions' }),
     kpiCardHTML('Conv. Value',   cVal > 0 ? _gMoney0(cVal) : muted, { mono: true }),
     kpiCardHTML('Blended ROAS',  cROAS !== null && cVal > 0 ? `${cROAS.toFixed(2)}×` : muted, { mono: true, title: 'Combined conversion value ÷ combined spend' }),
   ].join('');
@@ -4469,6 +4477,7 @@ function renderCombined() {
   const int    = (s, f) => s.ok ? _gInt(s.totals[f]) : na;
   const pct    = (s, f) => s.ok ? `${Number(s.totals[f] || 0).toFixed(2)}%` : na;
   const roas   = (s)    => s.ok ? (s.totals.roas !== null && Number(s.totals.conversionValue) > 0 ? `${Number(s.totals.roas).toFixed(2)}×` : muted) : na;
+  const cac    = (s)    => s.ok ? (Number(s.totals.conversions) > 0 ? _gMoney(Number(s.totals.spend) / Number(s.totals.conversions)) : muted) : na;
 
   const th   = 'px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500';
   const lbl  = 'px-3 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200';
@@ -4481,6 +4490,7 @@ function renderCombined() {
     { label: 'Clicks',      meta: int(meta,'clicks'),           goog: int(goog,'clicks'),           comb: _gInt(cClk) },
     { label: 'CTR',         meta: pct(meta,'ctr'),              goog: pct(goog,'ctr'),              comb: `${cCTR.toFixed(2)}%` },
     { label: 'Conversions', meta: int(meta,'conversions'),      goog: int(goog,'conversions'),      comb: _gInt(cConv) },
+    { label: 'CAC',         meta: cac(meta),                    goog: cac(goog),                    comb: cConv > 0 ? `<span class="font-mono">${_gMoney(cSpend / cConv)}</span>` : muted, mono: true },
     { label: 'Conv. Value', meta: money0(meta,'conversionValue'),goog: money0(goog,'conversionValue'),comb: cVal > 0 ? `<span class="font-mono">${_gMoney0(cVal)}</span>` : muted },
     { label: 'ROAS',        meta: roas(meta),                   goog: roas(goog),                   comb: cROAS !== null && cVal > 0 ? `${cROAS.toFixed(2)}×` : muted },
   ];
