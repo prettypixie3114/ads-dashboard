@@ -241,6 +241,7 @@
   <!--  Merged Meta + Google KPI cards + a side-by-side metric     -->
   <!--  comparison table. Same card/table visual system.           -->
   <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="combinedShopifyRow" class="hidden mb-5"></div>
   <div id="combinedKpiRow" class="hidden grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3"></div>
   <div id="combinedHost" class="hidden mt-5"></div>
 
@@ -521,6 +522,7 @@ const APP = {
   gads:               { totals: null, campaigns: [], meta: null, error: null, loading: false },
   gadsUI:             { filter: 'all', sortKey: 'spend', sortDir: 'desc' },  // Google Ads table filter/sort (client-side)
   combinedLoading:    false,       // true while Combined is fetching a missing source
+  shopify:            { totals: null, meta: null, error: null, loading: false },  // Shopify store sales (via worker /shopify)
   setupOverrides:     {},        // { 'setup_age_0': '22-55', … } — local per-rule target overrides
   accountInfo:        null,      // { timezone_name, currency } — fetched once for TZ-correct dates
   campaignInsightsList: []       // flat list of campaign-level insight rows for accurate totals
@@ -4040,6 +4042,7 @@ function switchSource(src) {
   show('kpiRow',         false);    /* renderKPIs re-shows it for Meta/Performance */
   show('gadsKpiRow',     isG);
   show('gadsHost',       isG);
+  show('combinedShopifyRow', isC);
   show('combinedKpiRow', isC);
   show('combinedHost',   isC);
 
@@ -4085,6 +4088,40 @@ async function loadGoogleAds() {
   } finally {
     APP.gads.loading = false;
     if (APP.source === 'google') renderGoogleAds();
+  }
+}
+
+/* Fetch Shopify store sales (gross/net) from the Worker's /shopify route.
+   Mirrors loadGoogleAds(): the Worker holds the Shopify Admin token so the
+   browser never sees it. Surfaced in the Combined view. */
+async function loadShopify() {
+  APP.shopify.error = null;
+  const base = CONFIG.GA4_WORKER_URL;
+  if (!base) {
+    APP.shopify.totals = null; APP.shopify.meta = null;
+    APP.shopify.error = 'not_configured';
+    if (APP.source === 'combined') renderShopifyCards();
+    return;
+  }
+  if (!APP.since || !APP.until) return;
+  APP.shopify.loading = true;
+  if (APP.source === 'combined') renderShopifyCards();   /* skeleton */
+  try {
+    const u = new URL(base.replace(/\/+$/, '') + '/shopify');
+    u.searchParams.set('since', APP.since);
+    u.searchParams.set('until', APP.until);
+    const r = await fetch(u.toString(), { cache: 'no-store' });
+    const data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || `Worker HTTP ${r.status}`);
+    APP.shopify.totals = data.totals || null;
+    APP.shopify.meta   = data.meta   || null;
+  } catch (e) {
+    console.warn('Shopify load failed:', e.message);
+    APP.shopify.totals = null; APP.shopify.meta = null;
+    APP.shopify.error = e.message;
+  } finally {
+    APP.shopify.loading = false;
+    if (APP.source === 'combined') renderShopifyCards();
   }
 }
 
@@ -4338,6 +4375,10 @@ async function loadCombined(force) {
   if (force || !googleHas) {
     tasks.push(loadGoogleAds());         /* populates APP.gads */
   }
+  const shopHas = !!APP.shopify.totals || !!APP.shopify.error;
+  if (force || !shopHas) {
+    tasks.push(loadShopify());           /* populates APP.shopify (independent of ad sources) */
+  }
 
   APP.combinedLoading = tasks.length > 0;
   if (APP.source === 'combined') renderCombined();   /* skeleton / current */
@@ -4424,10 +4465,51 @@ function combinedInsightsHTML(meta, goog) {
     </div>`;
 }
 
+/* Shopify "Store Sales" card block for the Combined view. Independent of
+   Meta/Google — has its own loading / error / not-configured states, same
+   as the Google Ads view. */
+function renderShopifyCards() {
+  const host = document.getElementById('combinedShopifyRow');
+  if (!host) return;
+  const s = APP.shopify;
+  const heading = '<div class="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Store Sales · Shopify</div>';
+  const noteCard = (msg, tone) => `${heading}<div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 px-4 py-6 text-center text-sm ${tone} bg-white/80 dark:bg-slate-800/30">${msg}</div>`;
+
+  if (s.error === 'not_configured') {
+    host.innerHTML = noteCard('Shopify not connected yet — add the <span class="font-mono">/shopify</span> worker route + <span class="font-mono">SHOPIFY_ADMIN_TOKEN</span> secret to show store sales here.', 'text-slate-500 dark:text-slate-400');
+    return;
+  }
+  if (s.loading && !s.totals) {
+    host.innerHTML = `${heading}<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">` +
+      Array.from({ length: 4 }).map(() => kpiCardHTML('', '<span class="skeleton inline-block w-16 h-5 rounded"></span>')).join('') +
+      '</div>';
+    return;
+  }
+  if (s.error) {
+    host.innerHTML = noteCard(`Shopify sales failed to load: ${escH(s.error)}`, 'text-rose-500 dark:text-rose-400');
+    return;
+  }
+  if (!s.totals) { host.innerHTML = ''; return; }
+
+  const t = s.totals;
+  const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
+  const cards = [
+    kpiCardHTML('Gross Sales', _gMoney0(t.grossSales), { mono: true, title: 'Shopify gross sales — product revenue before discounts, returns, tax & shipping' }),
+    kpiCardHTML('Net Sales',   _gMoney0(t.netSales),   { mono: true, title: 'Gross − discounts − returns (matches Shopify’s Net sales)' }),
+    kpiCardHTML('Orders',      _gInt(t.orders)),
+    kpiCardHTML('Avg. Order Value', Number(t.averageOrderValue) > 0 ? _gMoney0(t.averageOrderValue) : muted, { mono: true }),
+  ].join('');
+  const refreshing = s.loading ? '<span class="ml-2 text-[10px] text-slate-400 dark:text-slate-500 normal-case font-normal tracking-normal">refreshing…</span>' : '';
+  host.innerHTML = `${heading.replace('</div>', refreshing + '</div>')}<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">${cards}</div>`;
+}
+
 function renderCombined() {
   const kpiRow = document.getElementById('combinedKpiRow');
   const host   = document.getElementById('combinedHost');
   if (!kpiRow || !host) return;
+
+  /* Shopify store sales render independently of Meta/Google availability. */
+  renderShopifyCards();
 
   const meta = metaColumnState();
   const goog = googleColumnState();
