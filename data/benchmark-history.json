@@ -1,4 +1,0 @@
-{
-  "_note": "Daily benchmark snapshots, keyed by date (YYYY-MM-DD), one entry per metric row (by row #). The panel captures these client-side into localStorage['benchmarkHistory'] on every refresh from day one. Persisting them into THIS committed file requires a backend write path (Cloudflare Worker + KV, or a scheduled GitHub Action that reads the Worker and commits) — a static GitHub Pages page cannot write to its own repo. See the Phase-1 report for the recommended write-back. Seeded empty.",
-  "days": {}
-}

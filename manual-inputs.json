@@ -1,9 +1,0 @@
-{
-  "lastUpdated": "2026-08-01",
-  "eventMatchQuality": null,
-  "topLandingPage": "https://prettypixie.com/",
-  "_notes": {
-    "eventMatchQuality": "Row 24 — pixel event match quality (0-10) for the purchase event. No public API exists; read it from Meta Events Manager → Data sources → your pixel → Purchase event → 'Event match quality'. Set the number here and bump lastUpdated. Null renders as NEEDS DATA (never faked).",
-    "topLandingPage": "Row 17 — the top landing page ads point at, used for the PageSpeed LCP call."
-  }
-}
