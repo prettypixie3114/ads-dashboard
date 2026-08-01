@@ -1,9 +1,26 @@
 {
   "lastUpdated": "2026-08-01",
-  "eventMatchQuality": null,
+  "eventMatchQuality": 9.3,
+  "eventMatchQualityByStage": {
+    "PageView": 6.1,
+    "ViewContent": 6.1,
+    "AddToCart": 6.2,
+    "InitiateCheckout": 7.5,
+    "AddPaymentInfo": 9.2,
+    "Purchase": 9.3
+  },
+  "rawEventCounts": {
+    "_range": "Events Manager, 4-31 Jul 2026",
+    "addToCart": 5700,
+    "initiateCheckout": 1600,
+    "purchase": 304
+  },
+  "capiUpliftPct": 33.3,
   "topLandingPage": "https://prettypixie.com/",
   "_notes": {
-    "eventMatchQuality": "Row 24 — pixel event match quality (0-10) for the purchase event. No public API exists; read it from Meta Events Manager → Data sources → your pixel → Purchase event → 'Event match quality'. Set the number here and bump lastUpdated. Null renders as NEEDS DATA (never faked).",
-    "topLandingPage": "Row 17 — the top landing page ads point at, used for the PageSpeed LCP call."
+    "eventMatchQuality": "Row 24 — purchase-event match quality (0-10) from Events Manager. Set the number here + bump lastUpdated. Null renders NEEDS DATA.",
+    "eventMatchQualityByStage": "Context for rows 14/15/16 — per-funnel-stage match quality. Lower-stage events (ATC 6.2) are less reliable than checkout (IC 7.5), so ATC-based ratios carry more measurement error. Shown as secondary text under row 24.",
+    "rawEventCounts": "Raw Events Manager counts. Used for the row-15 footnote: the raw ATC->IC ratio (~28%) vs the pixel-derived ~19% shown, because the two events differ in match quality.",
+    "topLandingPage": "Row 17 — landing page for the PageSpeed LCP call."
   }
 }

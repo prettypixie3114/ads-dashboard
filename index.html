@@ -5257,6 +5257,8 @@ async function loadBenchmarks(force) {
     videoFallback: !!m.video3sIsFallback,
     lpUrl, pagespeedLive: !!ps,
     manualUpdated: (manual && manual.lastUpdated) || null,
+    matchByStage: (manual && manual.eventMatchQualityByStage) || null,
+    rawCounts: (manual && manual.rawEventCounts) || null,
     sources: {
       account: !!base, reach: !!supp, adset: !!adset, ad: !!ad, activities: !!act,
       audiences: !!aud, shopify: !!APP.shopify.totals, ga4: !!APP.ga4.totals,
@@ -5322,9 +5324,14 @@ function renderBenchmarksPanel() {
     if (r.sl === 4 && x.ga4ConvRate != null) {
       shown += _bconv(`GA4: ${x.ga4ConvRate.toFixed(2)}% (purch÷sessions)`);
     }
-    /* row 24: show the manual lastUpdated date next to the value */
-    if (r.sl === 24 && status !== 'na' && status !== 'none' && x.manualUpdated) {
-      shown += _bconv(`updated ${escH(x.manualUpdated)}`);
+    /* row 24: manual lastUpdated date + per-stage match-quality context
+       (rows 14/15/16 are computed from these lower-quality funnel events). */
+    if (r.sl === 24 && status !== 'na' && status !== 'none') {
+      if (x.manualUpdated) shown += _bconv(`updated ${escH(x.manualUpdated)}`);
+      const s = x.matchByStage;
+      if (s && s.AddToCart != null && s.InitiateCheckout != null) {
+        shown += _bconv(`By stage: ATC ${s.AddToCart} · IC ${s.InitiateCheckout} — rows 14–16 rely on these`);
+      }
     }
 
     const subBase = (typeof r.sub === 'function') ? r.sub() : r.sub;
@@ -5369,6 +5376,17 @@ function renderBenchmarksPanel() {
     : (x.activityCount != null
         ? `<div class="mt-1">Row 22 diagnostics: <b class="text-slate-700 dark:text-slate-200">${_bint(x.activityCount)}</b> activity events in range${x.activityTypes.length ? ` · types: <span class="font-mono">${escH(x.activityTypes.slice(0,8).join(', '))}</span>` : ''}${x.budgetNoChanges ? ' · no budget edits (rendered "No changes in range")' : ''}.</div>`
         : '');
+  /* Row 15 footnote: ATC→IC spans events of differing match quality (ATC 6.2
+     vs IC 7.5), so the pixel-measured drop is overstated vs raw counts. */
+  let row15Note = '';
+  if (x.rawCounts && Number(x.rawCounts.addToCart) > 0 && Number(x.rawCounts.initiateCheckout) >= 0) {
+    const rawIC = Number(x.rawCounts.initiateCheckout) / Number(x.rawCounts.addToCart) * 100;
+    const shownIC = _bsafe(m.initiateCheckout, m.addToCart);
+    const shownStr = shownIC != null ? `${(shownIC * 100).toFixed(0)}%` : '—';
+    const stageStr = (x.matchByStage && x.matchByStage.AddToCart != null && x.matchByStage.InitiateCheckout != null)
+      ? ` (match quality ${x.matchByStage.AddToCart} vs ${x.matchByStage.InitiateCheckout})` : '';
+    row15Note = `<div class="mt-1">Row 15: ATC→IC compares events of differing match quality${stageStr}, so the measured drop is overstated — raw Events Manager counts give <b class="text-slate-700 dark:text-slate-200">~${rawIC.toFixed(0)}%</b> vs the ${shownStr} shown. Not a correction, context.</div>`;
+  }
   const advantageNote = (x.advantagePlus && x.advantagePlus.length)
     ? `<div class="mt-1">Rows 8/9: <b class="text-slate-700 dark:text-slate-200">${escH(x.advantagePlus.join(', '))}</b> (Advantage+ Shopping) is bucketed as <b>cold</b> though it's a mixed audience — read the cold frequency with that caveat.</div>` : '';
   const acctNote = x.acctError
@@ -5407,7 +5425,7 @@ function renderBenchmarksPanel() {
       </div>
       <div class="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800/60 text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">
         <div><b class="text-slate-700 dark:text-slate-200">Currency:</b> CPC, CPM, CPL & CPA graded at $1 = ₹${BENCH_CONFIG.usdToInr.toFixed(2)} USD→INR${x.fxLive ? ` (live, as of ${escH(x.fxTimestamp || 'n/a')})` : ' (fallback ₹87)'} · <b class="text-slate-700 dark:text-slate-200">CPA ceiling AOV:</b> ${_binr(x.aovUsed || BENCH_CONFIG.aov)}${x.aovLive ? ' (Shopify)' : ' (fallback)'}</div>
-        ${acctNote}${recon}${bounceNote}${activitiesNote}${advantageNote}${unknownNote}
+        ${acctNote}${recon}${bounceNote}${row15Note}${activitiesNote}${advantageNote}${unknownNote}
         <div class="mt-1"><b class="text-slate-700 dark:text-slate-200">Source key:</b> API / API+ = Meta Insights · WORKER = needs a Worker route · MANUAL = manual-inputs.json${x.manualUpdated ? ` (updated ${escH(x.manualUpdated)})` : ''}.</div>
       </div>
     </div>`;
