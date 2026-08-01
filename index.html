@@ -5028,15 +5028,35 @@ async function benchAdData() {
   return { qualityAboveAvgPct, creativesPerAdset, creativeAgeDays };
 }
 
-/* ── data source 4: activity log (row 22) ── */
+/* ── data source 4: activity log (row 22) ──
+   DIAGNOSTIC PASS: logs the raw call verbatim (URL, count, distinct
+   event_type values) and reports counts so a genuine zero-budget-edit
+   window ("No changes in range") is distinguishable from a failed/missing
+   fetch (NEEDS DATA). Query itself is UNCHANGED pending review — both
+   update_ad_set_budget and update_campaign_budget (CBO) are already
+   covered, and since/until are passed explicitly (not inherited). */
 async function benchActivities() {
-  const rows = await fetchAllPages(`${accountId()}/activities`, {
-    fields: 'event_type,extra_data,event_time',
-    since: APP.since, until: APP.until
-  });
-  let maxJump = null, jumpAdset = null;
+  const path = `${accountId()}/activities`;
+  const fields = 'event_type,extra_data,event_time';
+  const urlForLog = `${CONFIG.API.META_BASE}/${path}?fields=${fields}&since=${APP.since}&until=${APP.until}`;
+  let rows;
+  try {
+    rows = await fetchAllPages(path, { fields, since: APP.since, until: APP.until });
+  } catch (e) {
+    console.error('[benchmark] /activities FAILED:', e.message, '\n  URL:', urlForLog);
+    return { ok: false, error: e.message, maxBudgetJumpPct: null, jumpAdset: null };
+  }
+  const typeCounts = {};
+  rows.forEach(r => { typeCounts[r.event_type] = (typeCounts[r.event_type] || 0) + 1; });
+  console.info('[benchmark] /activities URL:', urlForLog);
+  console.info('[benchmark] /activities status: OK · result count:', rows.length,
+               '· distinct event_type values:', typeCounts);
+
+  const BUDGET = ['update_ad_set_budget', 'update_campaign_budget'];
+  let maxJump = null, jumpAdset = null, budgetEvents = 0;
   rows.forEach(r => {
-    if (r.event_type !== 'update_ad_set_budget' && r.event_type !== 'update_campaign_budget') return;
+    if (!BUDGET.includes(r.event_type)) return;
+    budgetEvents++;
     let ex; try { ex = typeof r.extra_data === 'string' ? JSON.parse(r.extra_data) : r.extra_data; } catch (_) { return; }
     if (!ex) return;
     const oldV = parseFloat(ex.old_value ?? ex.oldValue ?? ex.old);
@@ -5045,7 +5065,11 @@ async function benchActivities() {
     const jump = (newV - oldV) / oldV * 100;
     if (jump > 0 && (maxJump === null || jump > maxJump)) { maxJump = jump; jumpAdset = ex.name || ex.object_name || null; }
   });
-  return { maxBudgetJumpPct: maxJump, jumpAdset };
+  console.info('[benchmark] /activities budget-change events (ad set + campaign):', budgetEvents, '· largest +% jump:', maxJump);
+  return {
+    ok: true, maxBudgetJumpPct: maxJump, jumpAdset,
+    totalActivities: rows.length, budgetEvents, eventTypes: Object.keys(typeCounts)
+  };
 }
 
 /* ── data source 5: custom audiences (row 25) ── */
@@ -5221,6 +5245,10 @@ async function loadBenchmarks(force) {
     metaPurchases: m.purchases,
     aovLive, aovUsed: BENCH_CONFIG.aov,
     budgetJumpAdset: act?.jumpAdset || null,
+    budgetNoChanges: !!(act && act.ok && act.budgetEvents === 0),
+    activitiesFailed: !!(act && act.ok === false),
+    activityCount: (act && act.ok) ? act.totalActivities : null,
+    activityTypes: (act && act.eventTypes) || [],
     audienceRange: aud?.range || null,
     unknownCampaigns: adset?.unknownCampaigns || [],
     advantagePlus: adset?.advantagePlus || [],
@@ -5265,14 +5293,28 @@ function renderBenchmarksPanel() {
   const th   = 'px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500';
   const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
 
+  let renderedCount = 0, noneCount = 0;
   const body = BENCH_ROWS.map(r => {
+    /* Row 5 (CPL): no lead campaigns — hide when zero lead actions in range
+       rather than showing NEEDS DATA. Reappears automatically if leads > 0. */
+    if (r.sl === 5 && !(Number(m.leads) > 0)) return '';
+
     let v = null; try { v = r.calc(m); } catch (_) { v = null; }
-    const status = (v === null || v === undefined || !isFinite(v)) ? 'na' : r.grade(v);
-    tally[status]++;
-    let shown = (status === 'na') ? muted : r.fmt(v);
-    /* row 1: show all-clicks CTR as a secondary so it reconciles visibly
-       with the META ADS tab (which reports all-clicks CTR). */
-    if (r.sl === 1 && status !== 'na' && m.impressions > 0) {
+    let status, shown;
+    if (r.sl === 22 && (v === null || v === undefined || !isFinite(v)) && x.budgetNoChanges) {
+      /* zero budget edits genuinely occurred in range — a fact, not missing data */
+      status = 'none';
+      shown = '<span class="text-slate-500 dark:text-slate-400">No changes in range</span>';
+      noneCount++;
+    } else {
+      status = (v === null || v === undefined || !isFinite(v)) ? 'na' : r.grade(v);
+      shown = (status === 'na') ? muted : r.fmt(v);
+      tally[status]++;
+    }
+    renderedCount++;
+
+    /* row 1: all-clicks CTR secondary (reconciles with the META ADS tab) */
+    if (r.sl === 1 && status !== 'na' && status !== 'none' && m.impressions > 0) {
       const allCtr = m.clicksAll / m.impressions * 100;
       shown += _bconv(`All-clicks: ${allCtr.toFixed(2)}% — matches META ADS tab`);
     }
@@ -5280,30 +5322,35 @@ function renderBenchmarksPanel() {
     if (r.sl === 4 && x.ga4ConvRate != null) {
       shown += _bconv(`GA4: ${x.ga4ConvRate.toFixed(2)}% (purch÷sessions)`);
     }
+    /* row 24: show the manual lastUpdated date next to the value */
+    if (r.sl === 24 && status !== 'na' && status !== 'none' && x.manualUpdated) {
+      shown += _bconv(`updated ${escH(x.manualUpdated)}`);
+    }
+
     const subBase = (typeof r.sub === 'function') ? r.sub() : r.sub;
     let subExtra = '';
-    /* outperformance note: value graded good by beating the range */
     if (status === 'good' && benchOutperform(r, v)) {
       subExtra += ` · <span class="text-emerald-600 dark:text-emerald-400">outperforming (better than the ${escH(r.good)} range)</span>`;
     }
-    /* video 3-sec fallback label (rows 10/12) */
     if ((r.sl === 10 || r.sl === 12) && x.videoFallback) {
       subExtra += ` · <span class="text-amber-600 dark:text-amber-400">via video_play_actions (3-sec view absent)</span>`;
     }
     const rowBg = status === 'bad' ? ' bg-rose-50/40 dark:bg-rose-500/5' : '';
     const srcTitle = r.src === 'WORKER' ? 'Needs a Worker route not deployed yet' : (r.src === 'MANUAL' ? 'Read from manual-inputs.json' : 'Meta Insights');
+    const tagCls = status === 'none' ? BENCH_TAG.na : BENCH_TAG[status];
+    const tagLabel = status === 'none' ? 'NO CHANGES' : BENCH_LABEL[status];
     return `<tr class="border-t border-slate-100 dark:border-slate-800/60${rowBg}">
       <td class="px-3 py-2.5 text-[11px] font-mono text-slate-400 dark:text-slate-500">${r.sl}</td>
       <td class="px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100">${escH(r.name)}<span class="block font-normal text-[11px] text-slate-400 dark:text-slate-500">${escH(subBase)}${subExtra}</span></td>
       <td class="px-3 py-2.5 text-[12px] font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap hidden md:table-cell">${escH(r.good)}</td>
       <td class="px-3 py-2.5 text-[12px] font-mono text-rose-500 dark:text-rose-400 whitespace-nowrap hidden md:table-cell">${escH(r.warn)}</td>
       <td class="px-3 py-2.5 text-right text-sm font-mono font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap">${shown}</td>
-      <td class="px-3 py-2.5 text-right"><span class="inline-block text-[10px] font-bold tracking-wider px-2 py-1 rounded ${BENCH_TAG[status]}">${BENCH_LABEL[status]}</span></td>
+      <td class="px-3 py-2.5 text-right"><span class="inline-block text-[10px] font-bold tracking-wider px-2 py-1 rounded ${tagCls}">${tagLabel}</span></td>
       <td class="px-3 py-2.5 text-[10px] font-mono text-slate-400 dark:text-slate-500 hidden md:table-cell" title="${srcTitle}">${r.src}</td>
     </tr>`;
-  }).join('');
+  }).filter(Boolean).join('');
 
-  const total = tally.good + tally.watch + tally.bad + tally.na;
+  const total = renderedCount;
   const pill = (n, cls, label) => `<span class="text-[12px] font-semibold px-2.5 py-1 rounded-full ${cls}">${n} ${label}</span>`;
 
   /* reconciliation line */
@@ -5317,6 +5364,11 @@ function renderBenchmarksPanel() {
     : '';
   const bounceNote = (x.ga4BounceAllTraffic != null)
     ? `<div class="mt-1">Row 18 shows NEEDS DATA: GA4 all-traffic bounce is ${x.ga4BounceAllTraffic.toFixed(1)}% but the graded value needs a Worker query filtered to paid-social landing pages.</div>` : '';
+  const activitiesNote = x.activitiesFailed
+    ? `<div class="mt-1 text-rose-500 dark:text-rose-400">Row 22: /activities call failed (NEEDS DATA) — see console.</div>`
+    : (x.activityCount != null
+        ? `<div class="mt-1">Row 22 diagnostics: <b class="text-slate-700 dark:text-slate-200">${_bint(x.activityCount)}</b> activity events in range${x.activityTypes.length ? ` · types: <span class="font-mono">${escH(x.activityTypes.slice(0,8).join(', '))}</span>` : ''}${x.budgetNoChanges ? ' · no budget edits (rendered "No changes in range")' : ''}.</div>`
+        : '');
   const advantageNote = (x.advantagePlus && x.advantagePlus.length)
     ? `<div class="mt-1">Rows 8/9: <b class="text-slate-700 dark:text-slate-200">${escH(x.advantagePlus.join(', '))}</b> (Advantage+ Shopping) is bucketed as <b>cold</b> though it's a mixed audience — read the cold frequency with that caveat.</div>` : '';
   const acctNote = x.acctError
@@ -5338,7 +5390,7 @@ function renderBenchmarksPanel() {
         ${pill(tally.watch, BENCH_TAG.watch, 'outside range')}
         ${pill(tally.bad, BENCH_TAG.bad, 'in warning')}
         ${pill(tally.na, BENCH_TAG.na, 'awaiting data')}
-        <span class="text-[11px] text-slate-400 dark:text-slate-500 self-center ml-auto">${total} rows</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 self-center ml-auto">${total} rows${(25 - total) ? ` · ${25 - total} hidden` : ''}${noneCount ? ` · ${noneCount} no-change` : ''}</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full">
@@ -5355,7 +5407,7 @@ function renderBenchmarksPanel() {
       </div>
       <div class="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800/60 text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">
         <div><b class="text-slate-700 dark:text-slate-200">Currency:</b> CPC, CPM, CPL & CPA graded at $1 = ₹${BENCH_CONFIG.usdToInr.toFixed(2)} USD→INR${x.fxLive ? ` (live, as of ${escH(x.fxTimestamp || 'n/a')})` : ' (fallback ₹87)'} · <b class="text-slate-700 dark:text-slate-200">CPA ceiling AOV:</b> ${_binr(x.aovUsed || BENCH_CONFIG.aov)}${x.aovLive ? ' (Shopify)' : ' (fallback)'}</div>
-        ${acctNote}${recon}${bounceNote}${advantageNote}${unknownNote}
+        ${acctNote}${recon}${bounceNote}${activitiesNote}${advantageNote}${unknownNote}
         <div class="mt-1"><b class="text-slate-700 dark:text-slate-200">Source key:</b> API / API+ = Meta Insights · WORKER = needs a Worker route · MANUAL = manual-inputs.json${x.manualUpdated ? ` (updated ${escH(x.manualUpdated)})` : ''}.</div>
       </div>
     </div>`;
