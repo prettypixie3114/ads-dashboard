@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meta Ads Benchmarks — Pretty Pixie</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e5e7eb;
+    --good:#15803d; --good-bg:#f0fdf4; --watch:#b45309; --watch-bg:#fffbeb;
+    --bad:#b91c1c; --bad-bg:#fef2f2; --na:#64748b; --na-bg:#f1f5f9;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--bg);font-family:var(--sans);color:var(--ink)}
+  .panel{max-width:1180px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .phead{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between}
+  .ptitle{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .psub{font-size:20px;font-weight:600;margin-top:4px}
+  .prange{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .scorebar{display:flex;gap:8px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line);background:#fcfcfd}
+  .pill{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid transparent}
+  .pill.good{color:var(--good);background:var(--good-bg);border-color:#bbf7d0}
+  .pill.watch{color:var(--watch);background:var(--watch-bg);border-color:#fde68a}
+  .pill.bad{color:var(--bad);background:var(--bad-bg);border-color:#fecaca}
+  .pill.na{color:var(--na);background:var(--na-bg);border-color:#e2e8f0}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;
+    text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);background:#fcfcfd;position:sticky;top:0}
+  td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  .sl{font-family:var(--mono);font-size:11px;color:#94a3b8;width:34px}
+  .metric{font-weight:600}
+  .metric small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:1px}
+  .thr{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+  .thr.g{color:var(--good)}
+  .thr.w{color:var(--bad)}
+  .val{font-family:var(--mono);font-size:14px;font-weight:600;text-align:right;white-space:nowrap}
+  .val .conv{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+  .status{text-align:right;width:120px}
+  .tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 8px;border-radius:4px}
+  .tag.good{color:var(--good);background:var(--good-bg)}
+  .tag.watch{color:var(--watch);background:var(--watch-bg)}
+  .tag.bad{color:var(--bad);background:var(--bad-bg)}
+  .tag.na{color:var(--na);background:var(--na-bg)}
+  tr.bad-row td{background:#fffafa}
+  .src{width:74px}
+  .srcdot{font-size:10px;color:#94a3b8;font-family:var(--mono)}
+  .foot{padding:14px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);background:#fcfcfd;line-height:1.6}
+  .foot b{color:var(--ink);font-weight:600}
+  .fx{font-family:var(--mono)}
+  @media (max-width:760px){
+    .hide-sm{display:none}
+    body{padding:10px}
+    td,thead th{padding:8px 8px}
+  }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="phead">
+    <div>
+      <div class="ptitle">Performance guardrails</div>
+      <div class="psub">Meta Ads benchmark check</div>
+    </div>
+    <div class="prange" id="rangeLabel">—</div>
+  </div>
+  <div class="scorebar" id="scorebar"></div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th class="sl">#</th>
+          <th>Metric</th>
+          <th class="hide-sm">Good</th>
+          <th class="hide-sm">Warning</th>
+          <th style="text-align:right">Your value</th>
+          <th class="status" style="text-align:right">Status</th>
+          <th class="src hide-sm">Source</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="foot">
+    <b>Source key:</b> <span class="srcdot">API</span> pulled automatically from the Meta Insights fields your Worker already requests ·
+    <span class="srcdot">API+</span> needs extra fields added to the Worker call ·
+    <span class="srcdot">MANUAL</span> lives outside Meta (GA4, PageSpeed, Events Manager) and is read from <span class="fx">manualInputs</span>.<br>
+    <b>Currency:</b> the published benchmarks are in USD. CPC, CPM, CPL and CPA are converted at <span class="fx" id="fxLabel"></span> before grading, so your INR values are compared like-for-like.
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   PRETTY PIXIE — BENCHMARK PANEL
+   Drop-in module for the ads dashboard.
+
+   To wire it into the live dashboard:
+   1. Paste the <style>, the .panel markup and this script into index.html.
+   2. After your existing fetch resolves, call:
+        renderBenchmarks(mapMetaInsights(insights, manualInputs), rangeLabel);
+   3. Everything below CONFIG is pure logic — no edits needed.
+   ============================================================ */
+
+const CONFIG = {
+  usdToInr: 87,          // update when the rate moves materially
+  aov: 7302,             // used to grade CPA (profitable vs not)
+  targetRoas: 2.0,       // your break-even-plus target
+  grossMarginPct: 55     // contribution margin before ad cost, for the CPA ceiling
+};
+
+/* ---------- helpers ---------- */
+const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+const inr2 = n => '₹' + n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = n => n.toFixed(2) + '%';
+const usd = n => '$' + n.toFixed(2);
+const safe = (a,b) => (b && isFinite(a/b)) ? a/b : null;
+
+// grade helpers: return 'good' | 'watch' | 'bad' | 'na'
+function band(v, {goodMin, goodMax, badBelow, badAbove}) {
+  if (v === null || v === undefined || !isFinite(v)) return 'na';
+  if (badBelow !== undefined && v < badBelow) return 'bad';
+  if (badAbove !== undefined && v > badAbove) return 'bad';
+  const inGood = (goodMin === undefined || v >= goodMin) && (goodMax === undefined || v <= goodMax);
+  return inGood ? 'good' : 'watch';
+}
+
+/* ---------- the 25 rows ---------- */
+const ROWS = [
+  { sl:1, name:'CTR', sub:'Link click-through', good:'2% – 5%', warn:'Below 1%', src:'API',
+    calc:m => { const v = safe(m.linkClicks, m.impressions); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:2,goodMax:5,badBelow:1}) },
+
+  { sl:2, name:'CPC', sub:'Cost per link click', good:'$0.10 – $1.50', warn:'Above $2', src:'API',
+    calc:m => safe(m.spend, m.linkClicks),
+    fmt:v => inr2(v) + `<span class="conv">${usd(v/CONFIG.usdToInr)}</span>`,
+    grade:v => band(v/CONFIG.usdToInr,{goodMin:0.10,goodMax:1.50,badAbove:2}) },
+
+  { sl:3, name:'CPM', sub:'Cost per 1,000 impressions', good:'$5 – $15', warn:'Above $20', src:'API',
+    calc:m => { const v = safe(m.spend, m.impressions); return v===null?null:v*1000; },
+    fmt:v => inr2(v) + `<span class="conv">${usd(v/CONFIG.usdToInr)}</span>`,
+    grade:v => band(v/CONFIG.usdToInr,{goodMin:5,goodMax:15,badAbove:20}) },
+
+  { sl:4, name:'Conversion rate', sub:'Purchases ÷ landing page views', good:'3% – 10%', warn:'Below 2%', src:'API+',
+    calc:m => { const v = safe(m.purchases, m.landingPageViews); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:3,goodMax:10,badBelow:2}) },
+
+  { sl:5, name:'Cost per lead', sub:'Lead campaigns only', good:'$1 – $20', warn:'Above your margin', src:'API+',
+    calc:m => safe(m.spend, m.leads),
+    fmt:v => inr2(v) + `<span class="conv">${usd(v/CONFIG.usdToInr)}</span>`,
+    grade:v => band(v/CONFIG.usdToInr,{goodMin:1,goodMax:20,badAbove:20}) },
+
+  { sl:6, name:'Cost per purchase', sub:`CPA ceiling ${inr(CONFIG.aov*CONFIG.grossMarginPct/100)} at ${CONFIG.grossMarginPct}% margin`, good:'Profitable CPA', warn:'Unprofitable CPA', src:'API',
+    calc:m => safe(m.spend, m.purchases),
+    fmt:inr,
+    grade:v => { if(v===null) return 'na'; const ceiling = CONFIG.aov*CONFIG.grossMarginPct/100;
+                 return v <= ceiling ? 'good' : (v <= CONFIG.aov ? 'watch' : 'bad'); } },
+
+  { sl:7, name:'ROAS', sub:'Purchase value ÷ spend', good:'2× – 4×', warn:'Below 1.5×', src:'API',
+    calc:m => safe(m.purchaseValue, m.spend),
+    fmt:v => v.toFixed(2) + '×', grade:v => band(v,{goodMin:2,goodMax:4,badBelow:1.5}) },
+
+  { sl:8, name:'Frequency — cold', sub:'Prospecting ad sets', good:'1.5 – 2.5', warn:'Above 3', src:'API+',
+    calc:m => m.freqCold, fmt:v => v.toFixed(2), grade:v => band(v,{goodMin:1.5,goodMax:2.5,badAbove:3}) },
+
+  { sl:9, name:'Frequency — retargeting', sub:'Warm + reactivation ad sets', good:'3 – 6', warn:'Above 8', src:'API+',
+    calc:m => m.freqRetarget, fmt:v => v.toFixed(2), grade:v => band(v,{goodMin:3,goodMax:6,badAbove:8}) },
+
+  { sl:10, name:'Video hook rate', sub:'3-second plays ÷ impressions', good:'25% – 40%+', warn:'Below 20%', src:'API+',
+    calc:m => { const v = safe(m.video3s, m.impressions); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:25,badBelow:20}) },
+
+  { sl:11, name:'Video hold rate', sub:'ThruPlays ÷ impressions', good:'15% – 30%', warn:'Below 10%', src:'API+',
+    calc:m => { const v = safe(m.thruPlays, m.impressions); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:15,goodMax:30,badBelow:10}) },
+
+  { sl:12, name:'Thumb stop ratio', sub:'3-second plays ÷ reach', good:'30%+', warn:'Below 20%', src:'API+',
+    calc:m => { const v = safe(m.video3s, m.reach); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:30,badBelow:20}) },
+
+  { sl:13, name:'Engagement rate', sub:'Post engagements ÷ impressions', good:'3% – 8%', warn:'Below 2%', src:'API+',
+    calc:m => { const v = safe(m.postEngagement, m.impressions); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:3,goodMax:8,badBelow:2}) },
+
+  { sl:14, name:'Add to cart rate', sub:'ATC ÷ landing page views', good:'5% – 12%', warn:'Below 3%', src:'API+',
+    calc:m => { const v = safe(m.addToCart, m.landingPageViews); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:5,goodMax:12,badBelow:3}) },
+
+  { sl:15, name:'Initiate checkout rate', sub:'Checkouts ÷ add to cart', good:'50%+ of ATC', warn:'Below 30%', src:'API+',
+    calc:m => { const v = safe(m.initiateCheckout, m.addToCart); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:50,badBelow:30}) },
+
+  { sl:16, name:'Purchase conversion rate', sub:'Purchases ÷ checkouts started', good:'40% – 60% of IC', warn:'Below 30%', src:'API+',
+    calc:m => { const v = safe(m.purchases, m.initiateCheckout); return v===null?null:v*100; },
+    fmt:pct, grade:v => band(v,{goodMin:40,goodMax:60,badBelow:30}) },
+
+  { sl:17, name:'Landing page load time', sub:'PageSpeed, mobile LCP', good:'Under 3 s', warn:'Above 5 s', src:'MANUAL',
+    calc:m => m.lpLoadSeconds, fmt:v => v.toFixed(1) + ' s', grade:v => band(v,{goodMax:3,badAbove:5}) },
+
+  { sl:18, name:'Bounce rate', sub:'GA4, paid social landing pages', good:'Below 50%', warn:'Above 70%', src:'MANUAL',
+    calc:m => m.bounceRate, fmt:pct, grade:v => band(v,{goodMax:50,badAbove:70}) },
+
+  { sl:19, name:'Ad relevance', sub:'Quality ranking, share above average', good:'Average or above', warn:'Below average', src:'API+',
+    calc:m => m.qualityAboveAvgPct, fmt:v => v.toFixed(0) + '% of spend',
+    grade:v => band(v,{goodMin:70,badBelow:40}) },
+
+  { sl:20, name:'Creative testing volume', sub:'Live creatives per ad set', good:'3 – 6 per ad set', warn:'Only 1 creative', src:'API+',
+    calc:m => m.creativesPerAdset, fmt:v => v.toFixed(1),
+    grade:v => band(v,{goodMin:3,goodMax:6,badBelow:2}) },
+
+  { sl:21, name:'Creative refresh cycle', sub:'Median age of running creative', good:'Every 7 – 10 days', warn:'More than 20 days', src:'API+',
+    calc:m => m.creativeAgeDays, fmt:v => v.toFixed(0) + ' days',
+    grade:v => band(v,{goodMax:10,badAbove:20}) },
+
+  { sl:22, name:'Budget scaling', sub:'Largest budget jump in range', good:'20 – 30% every 2–3 days', warn:'Aggressive jumps', src:'MANUAL',
+    calc:m => m.maxBudgetJumpPct, fmt:v => '+' + v.toFixed(0) + '%',
+    grade:v => band(v,{goodMax:30,badAbove:50}) },
+
+  { sl:23, name:'Learning phase exit', sub:'Conversions per ad set per week', good:'50 per week', warn:'Below 50', src:'API+',
+    calc:m => m.weeklyConvPerAdset, fmt:v => v.toFixed(1),
+    grade:v => band(v,{goodMin:50,badBelow:50}) },
+
+  { sl:24, name:'Pixel event match quality', sub:'Events Manager, purchase event', good:'8 / 10 or better', warn:'Below 6 / 10', src:'MANUAL',
+    calc:m => m.eventMatchQuality, fmt:v => v.toFixed(1) + ' / 10',
+    grade:v => band(v,{goodMin:8,badBelow:6}) },
+
+  { sl:25, name:'Retargeting window', sub:'Custom audience lookback', good:'7 – 30 days', warn:'Above 90 days', src:'MANUAL',
+    calc:m => m.retargetWindowDays, fmt:v => v.toFixed(0) + ' days',
+    grade:v => band(v,{goodMin:7,goodMax:30,badAbove:90}) }
+];
+
+/* ---------- renderer ---------- */
+const LABEL = {good:'GOOD', watch:'WATCH', bad:'WARNING', na:'NEEDS DATA'};
+
+function renderBenchmarks(m, rangeLabel) {
+  document.getElementById('rangeLabel').textContent = rangeLabel || '';
+  document.getElementById('fxLabel').textContent = '$1 = ₹' + CONFIG.usdToInr;
+
+  const tally = {good:0, watch:0, bad:0, na:0};
+  const html = ROWS.map(r => {
+    let v = null, status = 'na';
+    try { v = r.calc(m); } catch(e) { v = null; }
+    status = (v === null || v === undefined || !isFinite(v)) ? 'na' : r.grade(v);
+    tally[status]++;
+    const shown = (status === 'na') ? '—' : r.fmt(v);
+    return `<tr class="${status==='bad'?'bad-row':''}">
+      <td class="sl">${r.sl}</td>
+      <td class="metric">${r.name}<small>${r.sub}</small></td>
+      <td class="thr g hide-sm">${r.good}</td>
+      <td class="thr w hide-sm">${r.warn}</td>
+      <td class="val">${shown}</td>
+      <td class="status"><span class="tag ${status}">${LABEL[status]}</span></td>
+      <td class="src hide-sm"><span class="srcdot">${r.src}</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('rows').innerHTML = html;
+
+  document.getElementById('scorebar').innerHTML =
+    `<span class="pill good">${tally.good} on benchmark</span>
+     <span class="pill watch">${tally.watch} outside range</span>
+     <span class="pill bad">${tally.bad} in warning</span>
+     <span class="pill na">${tally.na} awaiting data</span>`;
+}
+
+/* ---------- Meta Insights → metrics object ----------
+   Feed this the raw account-level insights row from your Worker.
+   Add these to the `fields` param to light up the API+ rows:
+     inline_link_clicks, reach, frequency, quality_ranking,
+     actions, action_values, video_3_sec_watched_actions,
+     video_thruplay_watched_actions
+--------------------------------------------------------- */
+function actionCount(actions, type) {
+  if (!Array.isArray(actions)) return null;
+  const hit = actions.find(a => a.action_type === type);
+  return hit ? Number(hit.value) : null;
+}
+
+function mapMetaInsights(ins, manual = {}) {
+  const a = ins.actions || [];
+  const av = ins.action_values || [];
+  return {
+    spend: Number(ins.spend || 0),
+    impressions: Number(ins.impressions || 0),
+    reach: Number(ins.reach || 0),
+    linkClicks: Number(ins.inline_link_clicks || ins.clicks || 0),
+    landingPageViews: actionCount(a, 'landing_page_view'),
+    addToCart: actionCount(a, 'offsite_conversion.fb_pixel_add_to_cart'),
+    initiateCheckout: actionCount(a, 'offsite_conversion.fb_pixel_initiate_checkout'),
+    purchases: actionCount(a, 'offsite_conversion.fb_pixel_purchase'),
+    purchaseValue: actionCount(av, 'offsite_conversion.fb_pixel_purchase'),
+    leads: actionCount(a, 'lead'),
+    postEngagement: actionCount(a, 'post_engagement'),
+    video3s: actionCount(ins.video_3_sec_watched_actions, 'video_view'),
+    thruPlays: actionCount(ins.video_thruplay_watched_actions, 'video_view'),
+    // these come from a second pass over ad set / ad level rows
+    freqCold: manual.freqCold ?? null,
+    freqRetarget: manual.freqRetarget ?? null,
+    qualityAboveAvgPct: manual.qualityAboveAvgPct ?? null,
+    creativesPerAdset: manual.creativesPerAdset ?? null,
+    creativeAgeDays: manual.creativeAgeDays ?? null,
+    weeklyConvPerAdset: manual.weeklyConvPerAdset ?? null,
+    // fully manual inputs
+    lpLoadSeconds: manual.lpLoadSeconds ?? null,
+    bounceRate: manual.bounceRate ?? null,
+    maxBudgetJumpPct: manual.maxBudgetJumpPct ?? null,
+    eventMatchQuality: manual.eventMatchQuality ?? null,
+    retargetWindowDays: manual.retargetWindowDays ?? null
+  };
+}
+
+/* ---------- DEMO: your Jul 26 – Aug 1, 2026 Meta numbers ----------
+   Replace this block with the live call once wired up.
+   Rows left null below are the ones the Worker isn't fetching yet —
+   they render as NEEDS DATA so nothing is silently faked.
+------------------------------------------------------------------- */
+const demo = {
+  spend: 429269.36,
+  impressions: 958632,
+  reach: null,
+  linkClicks: 29704,
+  landingPageViews: null,
+  addToCart: null,
+  initiateCheckout: null,
+  purchases: 45,
+  purchaseValue: 345020,
+  leads: null,
+  postEngagement: null,
+  video3s: null,
+  thruPlays: null,
+  freqCold: null, freqRetarget: null, qualityAboveAvgPct: null,
+  creativesPerAdset: null, creativeAgeDays: null, weeklyConvPerAdset: null,
+  lpLoadSeconds: null, bounceRate: null, maxBudgetJumpPct: null,
+  eventMatchQuality: null, retargetWindowDays: null
+};
+
+renderBenchmarks(demo, 'Meta Ads · Jul 26 – Aug 1, 2026');
+</script>
+</body>
+</html>
