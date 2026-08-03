@@ -1,4 +1,4 @@
 {
-  "_note": "Daily benchmark snapshots, keyed by date (YYYY-MM-DD), one entry per metric row (by row #). The panel captures these client-side into localStorage['benchmarkHistory'] on every refresh from day one. Persisting them into THIS committed file requires a backend write path (Cloudflare Worker + KV, or a scheduled GitHub Action that reads the Worker and commits) — a static GitHub Pages page cannot write to its own repo. See the Phase-1 report for the recommended write-back. Seeded empty.",
+  "_note": "Daily versioned benchmark snapshots keyed by date (YYYY-MM-DD). Written by the token-free GitHub Action (.github/workflows/benchmark-snapshot.yml → scripts/benchmark-snapshot.mjs), which calls the Worker's /benchmark-snapshot route (Meta token stays in the Worker, never in GitHub). Runs daily without the dashboard open. A failed run writes nothing (the day is simply absent). Backfill a missed day via the workflow's manual run with a date input. Trend arrows (rows 14/15/16) will read from here once a few full days exist. Seeded empty.",
   "days": {}
 }

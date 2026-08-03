@@ -1,0 +1,55 @@
+name: benchmark-snapshot
+
+# Daily versioned snapshot of the benchmark metrics into
+# data/benchmark-history.json. Token-free: it calls the PUBLIC Worker
+# /benchmark-snapshot endpoint (the Meta token lives only in the Worker).
+# Commits use the built-in repo-scoped GITHUB_TOKEN — NOT the Meta token.
+
+on:
+  schedule:
+    # 02:30 UTC daily ≈ 08:00 IST — after the previous IST day has fully closed.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Backfill a specific day (YYYY-MM-DD). Blank = yesterday (UTC).'
+        required: false
+        default: ''
+
+permissions:
+  contents: write        # only to commit data/benchmark-history.json
+
+concurrency:
+  group: benchmark-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Fails LOUDLY (red X) and writes nothing on any error — see the script.
+      - name: Compute snapshot
+        run: node scripts/benchmark-snapshot.mjs
+        env:
+          WORKER_URL: https://meta-ads-ga4.shy-boat-66a1.workers.dev
+          SNAPSHOT_DATE: ${{ github.event.inputs.date }}
+
+      # Only reached if the step above succeeded. Commits only if the file
+      # actually changed (no empty commits).
+      - name: Commit history
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data/benchmark-history.json; then
+            echo "No change to history — nothing to commit."
+          else
+            git add data/benchmark-history.json
+            git commit -m "chore(benchmarks): daily snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi
