@@ -37,7 +37,6 @@ async function handleBenchmarkSnapshot(request, env, since, until, cors) {
 
   const ver = env.META_API_VERSION || "v19.0";
   const acct = "act_" + String(env.META_AD_ACCOUNT_ID).replace(/^act_/, "");
-  const origin = new URL(request.url).origin;
   const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
   const ac = (arr, type) => { if (!Array.isArray(arr)) return null; const h = arr.find(a => a.action_type === type); return h ? Number(h.value) : null; };
   const safe = (a, b) => (b && isFinite(a / b)) ? a / b : null;
@@ -66,23 +65,29 @@ async function handleBenchmarkSnapshot(request, env, since, until, cors) {
     const video3s = ac(a, "video_view");
     const thruplay = ac(row.video_thruplay_watched_actions, "video_view");
 
-    /* reuse the worker's own Shopify + GA4 routes (no duplication).
-       ALL-OR-NOTHING: if Shopify OR GA4 fails, reject the whole snapshot so
-       the day is never persisted with some fields null (same rule as zero
-       rows — a partial day is worse than an absent day). */
-    const q = `since=${since}&until=${until}`;
-    const [shopRes, ga4Res] = await Promise.allSettled([
-      fetch(`${origin}/shopify?${q}`).then(r => r.json()),
-      fetch(`${origin}/?${q}`).then(r => r.json())
-    ]);
-    if (shopRes.status !== "fulfilled" || !shopRes.value || shopRes.value.error || !shopRes.value.totals) {
-      return json({ error: `snapshot incomplete — Shopify leg failed: ${shopRes.reason || (shopRes.value && shopRes.value.error) || "no totals"}` }, 502, cors);
+    /* Call the Shopify + GA4 handlers IN-PROCESS and read their JSON. A
+       Worker cannot fetch its OWN hostname (Cloudflare error 1042), so the
+       self-subrequest pattern can't work — invoke the handlers directly.
+       ALL-OR-NOTHING: if either leg errors, OR Shopify shows zero orders
+       (handleShopify returns a zero-filled totals object when ShopifyQL is
+       empty, so a zero-day would otherwise pass), reject the whole day.
+       An absent day beats a misleading zero/partial one. */
+    let shop, ga4;
+    try {
+      const sd = await (await handleShopify(env, since, until, cors)).json();
+      if (sd.error || !sd.totals) return json({ error: `snapshot incomplete — Shopify leg failed: ${sd.error || "no totals"}` }, 502, cors);
+      if (Number(sd.totals.orders) === 0) return json({ error: "snapshot incomplete — Shopify returned zero orders (zero-day rejected)" }, 502, cors);
+      shop = sd.totals;
+    } catch (e) {
+      return json({ error: `snapshot incomplete — Shopify leg threw: ${e.message || e}` }, 502, cors);
     }
-    if (ga4Res.status !== "fulfilled" || !ga4Res.value || ga4Res.value.error || !ga4Res.value.totals) {
-      return json({ error: `snapshot incomplete — GA4 leg failed: ${ga4Res.reason || (ga4Res.value && ga4Res.value.error) || "no totals"}` }, 502, cors);
+    try {
+      const gd = await (await handleGa4(env, since, until, cors)).json();
+      if (gd.error || !gd.totals) return json({ error: `snapshot incomplete — GA4 leg failed: ${gd.error || "no totals"}` }, 502, cors);
+      ga4 = gd.totals;
+    } catch (e) {
+      return json({ error: `snapshot incomplete — GA4 leg threw: ${e.message || e}` }, 502, cors);
     }
-    const shop = shopRes.value.totals;
-    const ga4 = ga4Res.value.totals;
 
     /* account-level row values (same formulas as the panel) */
     const metrics = {

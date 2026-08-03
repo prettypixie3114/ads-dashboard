@@ -63,6 +63,9 @@ async function main() {
   if (data.shopify == null || data.ga4 == null) {
     fail('incomplete snapshot — Shopify or GA4 leg missing; rejecting the whole day');
   }
+  if (data.shopify && Number(data.shopify.orders) === 0) {
+    fail('zero-order day — rejecting (an absent day beats a misleading zero)');
+  }
 
   const store = loadStore();
   const mode = store.days[date] ? 'overwrote' : 'added';
