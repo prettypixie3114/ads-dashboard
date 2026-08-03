@@ -5090,10 +5090,10 @@ async function benchActivities() {
   rows.forEach(r => {
     if (!BUDGET.includes(r.event_type)) return;
     budgetEvents++;
-    if (!sampled) { sampled = true; console.info(`[benchmark] row22 SAMPLE raw extra_data (${r.event_type}):`, r.extra_data); }
+    if (!sampled) { sampled = true; console.info(`%c[benchmark] row22 — PASTE THIS raw extra_data (${r.event_type}):`, 'font-weight:bold;color:#b45309', r.extra_data); }
     let ex; try { ex = typeof r.extra_data === 'string' ? JSON.parse(r.extra_data) : r.extra_data; } catch (_) { return; }
     if (!ex) return;
-    if (budgetEvents === 1) console.info('[benchmark] row22 SAMPLE parsed extra_data:', ex);
+    if (budgetEvents === 1) console.info('[benchmark] row22 parsed keys:', (ex && typeof ex === 'object') ? Object.keys(ex) : typeof ex, '· full:', ex);
     const { oldV, newV } = _benchBudgetPair(ex);
     if (oldV == null || newV == null || oldV <= 0) return;
     parsedOk++;
@@ -5172,10 +5172,15 @@ async function benchGa4Bounce() {
     u.searchParams.set('since', APP.since);
     u.searchParams.set('until', APP.until);
     const r = await fetch(u.toString(), { cache: 'no-store' });
+    console.info('[benchmark] row18 /ga4-bounce GET', u.toString(), '→ HTTP', r.status);
     const d = await r.json();
-    if (!r.ok || d.error || !d.totals) return null;
+    if (!r.ok || d.error || !d.totals || d.totals.bounceRate == null) {
+      console.warn('[benchmark] row18 /ga4-bounce not usable → NEEDS DATA:', d.error || `HTTP ${r.status}`, d.totals || '');
+      return null;
+    }
+    console.info('[benchmark] row18 /ga4-bounce OK — bounce', (Number(d.totals.bounceRate) * 100).toFixed(1) + '%', '· sessions', d.totals.sessions, '· landing pages', (d.landingPages || []).length);
     return { bounceRate: Number(d.totals.bounceRate), sessions: Number(d.totals.sessions), landingPages: d.landingPages || [] };
-  } catch (_) { return null; }
+  } catch (e) { console.warn('[benchmark] row18 /ga4-bounce threw → NEEDS DATA:', e.message); return null; }
 }
 
 /* Top-3 distinct ad landing pages, query/hash stripped (else 250 unique
