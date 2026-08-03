@@ -4928,16 +4928,62 @@ async function benchAccountAll() {
    A hard-refresh within the window fires ZERO Meta calls — this is the main
    defence against the rate limit while testing. Bundle = the raw results of
    every Meta source for the range. */
-const BENCH_META_TTL = 15 * 60 * 1000;
+/* TTL by range length: month-level data changes slowly, so ranges over 14
+   days cache for 60 min (vs 15 for short ranges). Cuts fresh bundles when
+   flipping between/refreshing long ranges. */
+function _benchMetaTTL() { return _benchRangeDays() > 14 ? 60 * 60 * 1000 : 15 * 60 * 1000; }
 function benchMetaCacheGet(key) {
   try {
     const c = JSON.parse(localStorage.getItem('benchMetaCache') || 'null');
-    if (c && c.key === key && (Date.now() - c.at) < BENCH_META_TTL) return c;
+    if (c && c.key === key && (Date.now() - c.at) < _benchMetaTTL()) return c;
   } catch (_) {}
   return null;
 }
 function benchMetaCacheSet(key, bundle) {
   try { localStorage.setItem('benchMetaCache', JSON.stringify({ key, at: Date.now(), bundle })); } catch (_) {}
+}
+
+/* Throttle lock. App-level (code 4) locks the whole app ~1h; user-level
+   (code 17) is shorter. While locked we STOP firing Meta and disable Refresh
+   with a countdown, so a manual retry can't extend the window. Persisted so
+   it survives a page refresh. */
+function benchSetThrottle(level) {
+  const mins = level === 'app' ? 60 : 15;
+  const until = Date.now() + mins * 60000;
+  try {
+    const prev = JSON.parse(localStorage.getItem('benchThrottle') || 'null');
+    /* extend, never shorten (a fresh 403 restarts the ~1h window) */
+    if (!prev || until > prev.until) localStorage.setItem('benchThrottle', JSON.stringify({ until, level }));
+  } catch (_) {}
+}
+function benchThrottleState() {
+  try {
+    const t = JSON.parse(localStorage.getItem('benchThrottle') || 'null');
+    if (t && t.until > Date.now()) return { active: true, remaining: t.until - Date.now(), until: t.until, level: t.level };
+  } catch (_) {}
+  return { active: false, remaining: 0 };
+}
+function _benchFmtCountdown(ms) {
+  const s = Math.max(0, Math.round(ms / 1000)), m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+/* 1s tick while the benchmark tab is throttled: keeps Refresh disabled with a
+   live countdown, then re-enables + auto-refetches the moment the lock lifts. */
+let _benchTickHandle = null;
+function benchThrottleTick() {
+  const t = benchThrottleState();
+  const btn = document.getElementById('refreshBtn');
+  const cd = document.getElementById('benchThrottleCountdown');
+  const onBench = APP.source === 'benchmark';
+  if (t.active && onBench) {
+    if (btn) { btn.disabled = true; btn.title = 'Meta rate limited — retry in ' + _benchFmtCountdown(t.remaining); btn.classList.add('opacity-40', 'cursor-not-allowed'); }
+    if (cd) cd.textContent = _benchFmtCountdown(t.remaining);
+    if (!_benchTickHandle) _benchTickHandle = setInterval(benchThrottleTick, 1000);
+  } else {
+    if (btn) { btn.disabled = false; btn.title = ''; btn.classList.remove('opacity-40', 'cursor-not-allowed'); }
+    if (_benchTickHandle) { clearInterval(_benchTickHandle); _benchTickHandle = null; }
+    if (onBench && APP.benchmark.rateLimited && !t.active) loadBenchmarks(true); /* lock lifted → refetch */
+  }
 }
 
 /* ── data source 2: ad-set level (rows 8, 9, 23) ── */
@@ -5319,12 +5365,24 @@ async function loadBenchmarks(force) {
      rate limit while testing). One call per level, NO retry/bisect, and we
      BACK OFF on a 403 / #4 / #17 — never re-fire on the same load. ══ */
   let rateLimited = false;
-  const rlCheck = msg => { if (_benchIsRateLimit(msg)) rateLimited = true; };
+  const rlCheck = msg => {
+    if (_benchIsRateLimit(msg)) {
+      rateLimited = true;
+      benchSetThrottle(/\bcode 4\b|\(#4\)/.test(String(msg)) ? 'app' : 'user');
+    }
+  };
+  const throttle = benchThrottleState();      /* honoured even on a forced Refresh */
   let bundle, metaCachedAt = null;
-  const cachedMeta = (!force) && benchMetaCacheGet(key);
+  const cachedMeta = (throttle.active || !force) ? benchMetaCacheGet(key) : null;
   if (cachedMeta) {
     bundle = cachedMeta.bundle; metaCachedAt = cachedMeta.at;
     console.info('[benchmark] Meta bundle from cache (age', Math.round((Date.now() - cachedMeta.at) / 1000) + 's) — 0 Meta calls');
+  } else if (throttle.active) {
+    /* Locked out (code 4/17) with no fresh cache → do NOT fire Meta; showing
+       RATE LIMITED avoids extending the window. */
+    rateLimited = true;
+    bundle = { acct: null, adset: null, ad: null, act: null, aud: null };
+    console.warn('[benchmark] throttled — skipping Meta calls; retry in', Math.ceil(throttle.remaining / 60000), 'min');
   } else {
     const guard = async (label, fn) => {
       try { return await fn(); }
@@ -5340,7 +5398,7 @@ async function loadBenchmarks(force) {
     const audR = await guard('audiences', () => benchAudiences(adsetR && adsetR.entities)); // row 25
     bundle = { acct: acctRow, adset: adsetR, ad: adR, act: actR, aud: audR };
     if (!rateLimited && acctRow) benchMetaCacheSet(key, bundle);  /* never cache a throttled/empty load */
-    console.info('[benchmark] Meta bundle fetched live' + (rateLimited ? ' (RATE LIMITED — backing off, not cached)' : ' & cached 15 min'));
+    console.info('[benchmark] Meta bundle fetched live' + (rateLimited ? ' (RATE LIMITED — backing off, not cached)' : ' & cached'));
   }
   B.rateLimited = rateLimited;
   B.metaFromCache = !!cachedMeta;
@@ -5405,7 +5463,9 @@ async function loadBenchmarks(force) {
     unknownCampaigns: adset?.unknownCampaigns || [],
     advantagePlus: adset?.advantagePlus || [],
     acctError: acct ? null : (rateLimited ? 'rate_limited' : 'account Insights returned no rows'),
-    rateLimited, metaFromCache: !!cachedMeta, metaCachedAt,
+    rateLimited, metaFromCache: !!cachedMeta, metaCachedAt, ttlMin: Math.round(_benchMetaTTL() / 60000),
+    throttleUntil: throttle.active ? throttle.until : (benchThrottleState().until || null),
+    throttleLevel: benchThrottleState().level || null,
     videoFallback: !!m.video3sIsFallback,
     lpPages: psCache.done,          /* [{url,lcp}] worst-first, cached */
     lpWorst: psCache.worst || null,
@@ -5612,11 +5672,11 @@ function renderBenchmarksPanel() {
   }
   const advantageNote = (x.advantagePlus && x.advantagePlus.length)
     ? `<div class="mt-1">Rows 8/9: <b class="text-slate-700 dark:text-slate-200">${escH(x.advantagePlus.join(', '))}</b> (Advantage+ Shopping) is bucketed as <b>cold</b> though it's a mixed audience — read the cold frequency with that caveat.</div>` : '';
-  /* One throttle line (not per row) + a cache-age indicator. */
+  /* One throttle line (not per row) with a live countdown + a cache-age note. */
   const rateNote = x.rateLimited
-    ? `<div class="mt-1 text-orange-600 dark:text-orange-400"><b>⚠ RATE LIMITED by Meta</b> (#4/#17) — Meta-sourced rows show "rate limited" (distinct from NEEDS DATA). Retry in ~15 min; the panel re-fetches and re-caches once the quota resets, and won't re-fire on refresh meanwhile.</div>`
+    ? `<div class="mt-1 text-orange-600 dark:text-orange-400"><b>⚠ RATE LIMITED by Meta</b>${x.throttleLevel === 'app' ? ' (app-level #4)' : x.throttleLevel === 'user' ? ' (#17)' : ''} — Meta rows show "rate limited" (distinct from NEEDS DATA). Refresh is disabled${x.throttleUntil ? ` · retry in <span id="benchThrottleCountdown" class="font-mono">${_benchFmtCountdown(x.throttleUntil - Date.now())}</span>` : ' shortly'}. The panel won't re-fire Meta and auto-recovers when the window resets.</div>`
     : (x.metaFromCache && x.metaCachedAt
-        ? `<div class="mt-1 text-slate-400 dark:text-slate-500">Meta data cached ${Math.max(0, Math.round((Date.now() - x.metaCachedAt) / 60000))} min ago (auto-refreshes after 15 min; a page refresh reuses it — no new Meta calls).</div>` : '');
+        ? `<div class="mt-1 text-slate-400 dark:text-slate-500">Meta data cached ${Math.max(0, Math.round((Date.now() - x.metaCachedAt) / 60000))} min ago (TTL ${x.ttlMin} min for this range; a refresh reuses it — no new Meta calls).</div>` : '');
   const acctNote = (x.acctError && x.acctError !== 'rate_limited')
     ? `<div class="mt-1 text-rose-500 dark:text-rose-400">Account Insights failed (rows 1–16 NEEDS DATA). Meta says: ${escH(x.acctError)}</div>` : '';
 
@@ -5655,6 +5715,9 @@ function renderBenchmarksPanel() {
         <div class="mt-1"><b class="text-slate-700 dark:text-slate-200">Source key:</b> API / API+ = Meta Insights · WORKER = needs a Worker route · MANUAL = manual-inputs.json${x.manualUpdated ? ` (updated ${escH(x.manualUpdated)})` : ''}.</div>
       </div>
     </div>`;
+
+  /* lock/unlock Refresh + drive the throttle countdown */
+  benchThrottleTick();
 }
 const _bint = n => Number(n || 0).toLocaleString('en-IN');
 
