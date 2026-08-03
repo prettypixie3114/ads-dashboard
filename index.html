@@ -5049,8 +5049,24 @@ function _benchBudgetVal(v) {
   }
   return null;
 }
-/* Try the known old/new key pairings (flat and *_budget variants). */
+/* Parse a container that may be an object OR a JSON-encoded string. */
+function _benchObj(v) {
+  if (v && typeof v === 'object') return v;
+  if (typeof v === 'string') { try { const p = JSON.parse(v); return (p && typeof p === 'object') ? p : null; } catch (_) {} }
+  return null;
+}
+/* Extract the old/new budget amounts. Handles Meta's "composite_data" shape
+   (confirmed live): extra_data.old_value / .new_value are each an object
+   (or JSON string) with the amount nested under the SAME key name, in the
+   account's minor unit — e.g. old_value.old_value = "3000000" (₹30,000).
+   Falls back to flat / *_budget variants for other shapes. The % jump is
+   unit-independent, so we compute it on the raw minor-unit values. */
 function _benchBudgetPair(ex) {
+  const oc = _benchObj(ex.old_value), nc = _benchObj(ex.new_value);
+  if (oc && nc) {
+    const o = _benchBudgetVal(oc.old_value), n = _benchBudgetVal(nc.new_value);
+    if (o != null && n != null) return { oldV: o, newV: n };
+  }
   const pairs = [
     ['old_value', 'new_value'], ['old_daily_budget', 'new_daily_budget'],
     ['old_lifetime_budget', 'new_lifetime_budget'], ['old', 'new'], ['oldValue', 'newValue']
@@ -5070,7 +5086,7 @@ function _benchBudgetPair(ex) {
    so the true field shape is visible instead of guessed. */
 async function benchActivities() {
   const path = `${accountId()}/activities`;
-  const fields = 'event_type,extra_data,event_time';
+  const fields = 'event_type,extra_data,event_time,object_name';
   const urlForLog = `${CONFIG.API.META_BASE}/${path}?fields=${fields}&since=${APP.since}&until=${APP.until}`;
   let rows;
   try {
@@ -5098,7 +5114,12 @@ async function benchActivities() {
     if (oldV == null || newV == null || oldV <= 0) return;
     parsedOk++;
     const jump = (newV - oldV) / oldV * 100;
-    if (jump > 0 && (maxJump === null || jump > maxJump)) { maxJump = jump; jumpEntity = ex.name || ex.object_name || ex.entity_name || null; }
+    if (jump > 0 && (maxJump === null || jump > maxJump)) {
+      maxJump = jump;
+      const nc = _benchObj(ex.new_value);
+      const kind = (nc && nc.additional_value) ? String(nc.additional_value).trim() : '';  /* e.g. "Per day" */
+      jumpEntity = (r.object_name || ex.name || ex.object_name || '(campaign)') + (kind ? ` · ${kind}` : '');
+    }
   });
   console.info(`[benchmark] /activities budget events: ${budgetEvents} (parsed ${parsedOk}) · largest +% jump:`, maxJump);
   if (budgetEvents > 0 && parsedOk === 0) {
