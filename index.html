@@ -5159,6 +5159,22 @@ function benchSnapshot(m) {
   } catch (_) {}
 }
 
+/* ── committed-history freshness watchdog ──
+   Reads the daily-Action-written data/benchmark-history.json (cache-busted,
+   so the panel reflects the true last write, not a service-worker copy). A
+   silent gap in history is the worst failure mode; the footer surfaces the
+   last-written date so a stalled daily Action is visible in the dashboard
+   the user actually looks at — not just the Actions tab. */
+async function benchLoadHistory() {
+  try {
+    const r = await fetch('data/benchmark-history.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const days = (d && d.days) ? Object.keys(d.days).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort() : [];
+    return { lastDate: days.length ? days[days.length - 1] : null, count: days.length };
+  } catch (_) { return null; }
+}
+
 /* ── orchestrator ── */
 async function loadBenchmarks(force) {
   const B = APP.benchmark;
@@ -5186,13 +5202,14 @@ async function loadBenchmarks(force) {
     benchAudiences(),            // 5
     benchFxRate(),               // 6
     benchManualInputs(),         // 7
-    loadShopify()                // 8 → APP.shopify (row 6 AOV + reconciliation)
+    loadShopify(),               // 8 → APP.shopify (row 6 AOV + reconciliation)
+    benchLoadHistory()           // 9 → committed history freshness (gap watchdog)
   ]);
   const V = i => settled[i].status === 'fulfilled' ? settled[i].value : null;
   const base = V(0);
   const suppRes = V(1) || {};
   const supp = suppRes.row || null;
-  const adset = V(2), ad = V(3), act = V(4), aud = V(5), fx = V(6), manual = V(7);
+  const adset = V(2), ad = V(3), act = V(4), aud = V(5), fx = V(6), manual = V(7), hist = V(9);
 
   /* merge: base (shared fetch) is authoritative for the acceptance metrics;
      the supplementary call supplies true de-duplicated reach + the video
@@ -5259,6 +5276,8 @@ async function loadBenchmarks(force) {
     manualUpdated: (manual && manual.lastUpdated) || null,
     matchByStage: (manual && manual.eventMatchQualityByStage) || null,
     rawCounts: (manual && manual.rawEventCounts) || null,
+    historyLastDate: (hist && hist.lastDate) || null,
+    historyDayCount: hist ? hist.count : null,
     sources: {
       account: !!base, reach: !!supp, adset: !!adset, ad: !!ad, activities: !!act,
       audiences: !!aud, shopify: !!APP.shopify.totals, ga4: !!APP.ga4.totals,
@@ -5387,6 +5406,16 @@ function renderBenchmarksPanel() {
       ? ` (match quality ${x.matchByStage.AddToCart} vs ${x.matchByStage.InitiateCheckout})` : '';
     row15Note = `<div class="mt-1">Row 15: ATC→IC compares events of differing match quality${stageStr}, so the measured drop is overstated — raw Events Manager counts give <b class="text-slate-700 dark:text-slate-200">~${rawIC.toFixed(0)}%</b> vs the ${shownStr} shown. Not a correction, context.</div>`;
   }
+  /* History freshness watchdog — a stalled daily snapshot Action shows here. */
+  let historyNote = '';
+  if (x.historyDayCount === 0) {
+    historyNote = `<div class="mt-1 text-slate-500 dark:text-slate-400">History: not capturing yet — enable the daily snapshot Action.</div>`;
+  } else if (x.historyDayCount > 0 && x.historyLastDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    const daysSince = Math.round((Date.parse(today) - Date.parse(x.historyLastDate)) / 86400000);
+    const stale = daysSince >= 2;
+    historyNote = `<div class="mt-1${stale ? ' text-amber-600 dark:text-amber-400' : ''}">History: last written <b class="${stale ? '' : 'text-slate-700 dark:text-slate-200'}">${escH(x.historyLastDate)}</b> (${x.historyDayCount} day${x.historyDayCount === 1 ? '' : 's'})${stale ? ` — ⚠ ${daysSince} days ago; the daily snapshot may be failing (check the Actions tab).` : ''}.</div>`;
+  }
   const advantageNote = (x.advantagePlus && x.advantagePlus.length)
     ? `<div class="mt-1">Rows 8/9: <b class="text-slate-700 dark:text-slate-200">${escH(x.advantagePlus.join(', '))}</b> (Advantage+ Shopping) is bucketed as <b>cold</b> though it's a mixed audience — read the cold frequency with that caveat.</div>` : '';
   const acctNote = x.acctError
@@ -5425,7 +5454,7 @@ function renderBenchmarksPanel() {
       </div>
       <div class="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800/60 text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">
         <div><b class="text-slate-700 dark:text-slate-200">Currency:</b> CPC, CPM, CPL & CPA graded at $1 = ₹${BENCH_CONFIG.usdToInr.toFixed(2)} USD→INR${x.fxLive ? ` (live, as of ${escH(x.fxTimestamp || 'n/a')})` : ' (fallback ₹87)'} · <b class="text-slate-700 dark:text-slate-200">CPA ceiling AOV:</b> ${_binr(x.aovUsed || BENCH_CONFIG.aov)}${x.aovLive ? ' (Shopify)' : ' (fallback)'}</div>
-        ${acctNote}${recon}${bounceNote}${row15Note}${activitiesNote}${advantageNote}${unknownNote}
+        ${acctNote}${recon}${bounceNote}${row15Note}${activitiesNote}${advantageNote}${unknownNote}${historyNote}
         <div class="mt-1"><b class="text-slate-700 dark:text-slate-200">Source key:</b> API / API+ = Meta Insights · WORKER = needs a Worker route · MANUAL = manual-inputs.json${x.manualUpdated ? ` (updated ${escH(x.manualUpdated)})` : ''}.</div>
       </div>
     </div>`;

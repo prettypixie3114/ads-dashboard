@@ -66,14 +66,23 @@ async function handleBenchmarkSnapshot(request, env, since, until, cors) {
     const video3s = ac(a, "video_view");
     const thruplay = ac(row.video_thruplay_watched_actions, "video_view");
 
-    /* reuse the worker's own Shopify + GA4 routes (no duplication) */
+    /* reuse the worker's own Shopify + GA4 routes (no duplication).
+       ALL-OR-NOTHING: if Shopify OR GA4 fails, reject the whole snapshot so
+       the day is never persisted with some fields null (same rule as zero
+       rows — a partial day is worse than an absent day). */
     const q = `since=${since}&until=${until}`;
     const [shopRes, ga4Res] = await Promise.allSettled([
       fetch(`${origin}/shopify?${q}`).then(r => r.json()),
       fetch(`${origin}/?${q}`).then(r => r.json())
     ]);
-    const shop = (shopRes.status === "fulfilled" && shopRes.value && !shopRes.value.error) ? shopRes.value.totals : null;
-    const ga4 = (ga4Res.status === "fulfilled" && ga4Res.value && !ga4Res.value.error) ? ga4Res.value.totals : null;
+    if (shopRes.status !== "fulfilled" || !shopRes.value || shopRes.value.error || !shopRes.value.totals) {
+      return json({ error: `snapshot incomplete — Shopify leg failed: ${shopRes.reason || (shopRes.value && shopRes.value.error) || "no totals"}` }, 502, cors);
+    }
+    if (ga4Res.status !== "fulfilled" || !ga4Res.value || ga4Res.value.error || !ga4Res.value.totals) {
+      return json({ error: `snapshot incomplete — GA4 leg failed: ${ga4Res.reason || (ga4Res.value && ga4Res.value.error) || "no totals"}` }, 502, cors);
+    }
+    const shop = shopRes.value.totals;
+    const ga4 = ga4Res.value.totals;
 
     /* account-level row values (same formulas as the panel) */
     const metrics = {

@@ -57,6 +57,12 @@ async function main() {
   if (!data.metrics || typeof data.metrics !== 'object' || !Object.keys(data.metrics).length) {
     fail('response has no metrics — refusing to write a partial day');
   }
+  /* All-or-nothing: a day missing its Shopify or GA4 leg is rejected whole,
+     never written with null fields (the Worker already errors on partial;
+     this is defense in depth). */
+  if (data.shopify == null || data.ga4 == null) {
+    fail('incomplete snapshot — Shopify or GA4 leg missing; rejecting the whole day');
+  }
 
   const store = loadStore();
   const mode = store.days[date] ? 'overwrote' : 'added';
