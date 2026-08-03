@@ -5160,10 +5160,71 @@ async function benchManualInputs() {
   } catch (_) { return null; }
 }
 
-/* ── data source 8: PageSpeed LCP (row 17) — via a Worker /pagespeed
-   route that is not deployed yet. The current Worker returns GA4 for
-   unknown paths, so we only accept a response that actually carries an
-   lcpSeconds field; otherwise the row stays NEEDS DATA. 24h cached. */
+/* ── data source: GA4 paid-social bounce + ad landing pages (rows 18, 17) ──
+   From the Worker /ga4-bounce route (paid-social filtered). landingPages is
+   ordered by sessions desc, so it doubles as "where ad traffic lands" for
+   the row-17 PageSpeed targets. Null on any failure → those rows degrade. */
+async function benchGa4Bounce() {
+  const base = CONFIG.GA4_WORKER_URL;
+  if (!base || !APP.since || !APP.until) return null;
+  try {
+    const u = new URL(base.replace(/\/+$/, '') + '/ga4-bounce');
+    u.searchParams.set('since', APP.since);
+    u.searchParams.set('until', APP.until);
+    const r = await fetch(u.toString(), { cache: 'no-store' });
+    const d = await r.json();
+    if (!r.ok || d.error || !d.totals) return null;
+    return { bounceRate: Number(d.totals.bounceRate), sessions: Number(d.totals.sessions), landingPages: d.landingPages || [] };
+  } catch (_) { return null; }
+}
+
+/* Top-3 distinct ad landing pages, query/hash stripped (else 250 unique
+   tracking URLs), as absolute prettypixie.com URLs for PageSpeed. */
+function _benchTopLpUrls(landingPages) {
+  const domain = 'https://prettypixie.com';
+  const seen = new Set(), out = [];
+  for (const lp of (landingPages || [])) {
+    let p = lp && lp.page;
+    if (!p || p === '(not set)' || p === '(other)') continue;
+    p = String(p).split('?')[0].split('#')[0];
+    const url = /^https?:\/\//.test(p) ? p : domain + (p.startsWith('/') ? p : '/' + p);
+    if (seen.has(url)) continue;
+    seen.add(url); out.push(url);
+    if (out.length >= 3) break;
+  }
+  if (!out.length) out.push(domain + '/');
+  return out;
+}
+
+/* Short, readable path for a landing-page URL (drop origin, truncate). */
+function _benchShortPath(url) {
+  let p = String(url || '').replace(/^https?:\/\/[^/]+/, '') || '/';
+  return p.length > 30 ? p.slice(0, 29) + '…' : p;
+}
+
+/* Read cached PageSpeed for the given URLs WITHOUT hitting the network, so
+   row 17 renders instantly. Returns worst (max LCP) + which URLs still need
+   fetching. */
+function benchPageSpeedCached(urls) {
+  const done = [], pending = [];
+  (urls || []).forEach(u => {
+    const c = JSON.parse(localStorage.getItem(`benchPS_${u}`) || 'null');
+    if (c && c.savedAt && Date.now() - c.savedAt < 86400000 && isFinite(c.lcpSeconds)) done.push({ url: u, lcp: c.lcpSeconds });
+    else pending.push(u);
+  });
+  done.sort((a, b) => b.lcp - a.lcp);
+  return { done, pending, worst: done[0] || null };
+}
+
+/* Fetch (and cache) any uncached PageSpeed URLs — slow, so run in the
+   background off the critical render path. */
+async function benchPageSpeedRefresh(urls) {
+  await Promise.allSettled((urls || []).map(u => benchPageSpeed(u)));
+}
+
+/* ── PageSpeed LCP (row 17) — one URL, 24h-cached in localStorage. Only a
+   response carrying lcpSeconds is accepted (an undeployed route falls
+   through to GA4 and is rejected). ── */
 async function benchPageSpeed(url) {
   if (!CONFIG.GA4_WORKER_URL || !url) return null;
   try {
@@ -5241,13 +5302,14 @@ async function loadBenchmarks(force) {
     benchFxRate(),               // 6
     benchManualInputs(),         // 7
     loadShopify(),               // 8 → APP.shopify (row 6 AOV + reconciliation)
-    benchLoadHistory()           // 9 → committed history freshness (gap watchdog)
+    benchLoadHistory(),          // 9 → committed history freshness (gap watchdog)
+    benchGa4Bounce()             // 10 → row 18 paid-social bounce + ad landing pages (row 17)
   ]);
   const V = i => settled[i].status === 'fulfilled' ? settled[i].value : null;
   const base = V(0);
   const suppRes = V(1) || {};
   const supp = suppRes.row || null;
-  const adset = V(2), ad = V(3), act = V(4), aud = V(5), fx = V(6), manual = V(7), hist = V(9);
+  const adset = V(2), ad = V(3), act = V(4), aud = V(5), fx = V(6), manual = V(7), hist = V(9), bounce = V(10);
 
   /* merge: base (shared fetch) is authoritative for the acceptance metrics;
      the supplementary call supplies true de-duplicated reach + the video
@@ -5264,9 +5326,12 @@ async function loadBenchmarks(force) {
   const ga4  = (APP.ga4 && APP.ga4.totals) || {};
   const aovLive = Number(shop.averageOrderValue) > 0 ? Number(shop.averageOrderValue) : null;
 
-  /* PageSpeed — needs a landing-page URL; use manual override or store domain */
-  const lpUrl = (manual && manual.topLandingPage) || 'https://prettypixie.com/';
-  let ps = null; try { ps = await benchPageSpeed(lpUrl); } catch (_) {}
+  /* Row 17 PageSpeed — top-3 ad landing pages (from /ga4-bounce, by paid
+     social sessions), worst LCP graded. PageSpeed is 30-60s per uncached
+     call, so NEVER block the panel: read cache instantly, render, and let
+     uncached pages fill in via a background refresh + re-render. */
+  const lpUrls = _benchTopLpUrls(bounce && bounce.landingPages);
+  const psCache = benchPageSpeedCached(lpUrls);
 
   const m = mapMetaInsights(acct || {}, {
     freqCold: adset?.freqCold ?? null,
@@ -5277,11 +5342,9 @@ async function loadBenchmarks(force) {
     creativeAgeDays: ad?.creativeAgeDays ?? null,
     maxBudgetJumpPct: act?.maxBudgetJumpPct ?? null,
     retargetWindowDays: aud?.retargetWindowDays ?? null,
-    lpLoadSeconds: ps?.lcpSeconds ?? null,
-    /* Row 18 stays NEEDS DATA: the current GA4 route isn't filtered to paid
-       social + ad landing pages, so grading its all-traffic bounce would be
-       wrong. See the report for the Worker change that lights this up. */
-    bounceRate: null,
+    lpLoadSeconds: psCache.worst ? psCache.worst.lcp : null,
+    /* Row 18: paid-social-filtered bounce (0-1 → %) from /ga4-bounce. */
+    bounceRate: (bounce && isFinite(bounce.bounceRate)) ? bounce.bounceRate * 100 : null,
     eventMatchQuality: (manual && manual.eventMatchQuality != null) ? Number(manual.eventMatchQuality) : null,
     aov: aovLive
   });
@@ -5312,7 +5375,11 @@ async function loadBenchmarks(force) {
     acctError: base ? null : (suppRes.error || 'shared Insights (loadInsights) returned no rows'),
     acctDropped: suppRes.dropped || [],
     videoFallback: !!m.video3sIsFallback,
-    lpUrl, pagespeedLive: !!ps,
+    lpPages: psCache.done,          /* [{url,lcp}] worst-first, cached */
+    lpWorst: psCache.worst || null,
+    lpPending: psCache.pending.length,
+    ga4BounceFiltered: (bounce && isFinite(bounce.bounceRate)) ? bounce.bounceRate * 100 : null,
+    ga4BounceSessions: (bounce && bounce.sessions != null) ? Number(bounce.sessions) : null,
     manualUpdated: (manual && manual.lastUpdated) || null,
     matchByStage: (manual && manual.eventMatchQualityByStage) || null,
     rawCounts: (manual && manual.rawEventCounts) || null,
@@ -5321,7 +5388,7 @@ async function loadBenchmarks(force) {
     sources: {
       account: !!base, reach: !!supp, adset: !!adset, ad: !!ad, activities: !!act,
       audiences: !!aud, shopify: !!APP.shopify.totals, ga4: !!APP.ga4.totals,
-      pagespeed: !!ps, manual: !!manual, fx: !!(fx && fx.rate > 0)
+      pagespeed: !!psCache.worst, manual: !!manual, fx: !!(fx && fx.rate > 0)
     }
   };
   B.loadedKey = key; B.loading = false;
@@ -5331,6 +5398,21 @@ async function loadBenchmarks(force) {
   }
   benchSnapshot(m);
   if (APP.source === 'benchmark') renderBenchmarksPanel();
+
+  /* Row 17: fetch any uncached top landing pages in the background (each is
+     slow + 24h-cached), then re-read cache and update just row 17. */
+  if (psCache.pending.length) {
+    benchPageSpeedRefresh(psCache.pending).then(() => {
+      const B2 = APP.benchmark;
+      if (!B2.data || B2.loadedKey !== key) return;
+      const fresh = benchPageSpeedCached(lpUrls);
+      B2.data.lpLoadSeconds = fresh.worst ? fresh.worst.lcp : null;
+      B2.extras.lpPages = fresh.done;
+      B2.extras.lpWorst = fresh.worst || null;
+      B2.extras.lpPending = fresh.pending.length;
+      if (APP.source === 'benchmark') renderBenchmarksPanel();
+    });
+  }
 }
 
 /* ── renderer (dashboard dark-mode styling) ── */
@@ -5367,6 +5449,11 @@ function renderBenchmarksPanel() {
       status = 'none';
       shown = '<span class="text-slate-500 dark:text-slate-400">No changes in range</span>';
       noneCount++;
+    } else if (r.sl === 17 && (v === null || v === undefined || !isFinite(v)) && x.lpPending > 0) {
+      /* PageSpeed is slow (30-60s/page) — measuring in the background */
+      status = 'none';
+      shown = '<span class="text-slate-500 dark:text-slate-400">measuring… <span class="text-[10px]">(PageSpeed, ~1 min)</span></span>';
+      noneCount++;
     } else {
       status = (v === null || v === undefined || !isFinite(v)) ? 'na' : r.grade(v);
       shown = (status === 'na') ? muted : r.fmt(v);
@@ -5386,6 +5473,20 @@ function renderBenchmarksPanel() {
     /* row 22: name the entity with the largest budget jump */
     if (r.sl === 22 && status !== 'na' && status !== 'none' && x.budgetJumpAdset) {
       shown += _bconv(`largest: ${escH(x.budgetJumpAdset)}`);
+    }
+    /* row 17: worst is the graded value; list the other top ad landing pages */
+    if (r.sl === 17 && status !== 'na' && status !== 'none' && x.lpPages && x.lpPages.length) {
+      const worstUrl = x.lpWorst ? x.lpWorst.url : null;
+      if (worstUrl) shown += _bconv(`worst: ${escH(_benchShortPath(worstUrl))}`);
+      const others = x.lpPages.filter(p => p.url !== worstUrl);
+      if (others.length) shown += _bconv('also: ' + others.map(p => `${escH(_benchShortPath(p.url))} ${p.lcp.toFixed(1)}s`).join(' · '));
+    }
+    /* row 18: paid-social bounce is the graded value; all-traffic as context */
+    if (r.sl === 18 && status !== 'na' && status !== 'none') {
+      const bits = [];
+      if (x.ga4BounceAllTraffic != null) bits.push(`all-traffic ${x.ga4BounceAllTraffic.toFixed(1)}%`);
+      if (x.ga4BounceSessions != null) bits.push(`${_bint(x.ga4BounceSessions)} paid-social sessions`);
+      if (bits.length) shown += _bconv(bits.join(' · '));
     }
     /* row 24: manual lastUpdated date + per-stage match-quality context
        (rows 14/15/16 are computed from these lower-quality funnel events). */
@@ -5432,8 +5533,14 @@ function renderBenchmarksPanel() {
   const unknownNote = (x.unknownCampaigns && x.unknownCampaigns.length)
     ? `<div class="mt-1 text-amber-600 dark:text-amber-400">${x.unknownCampaigns.length} campaign(s) unmatched to a class (excluded from rows 8/9 — see console): ${escH(x.unknownCampaigns.slice(0,3).join(', '))}${x.unknownCampaigns.length>3?'…':''}</div>`
     : '';
-  const bounceNote = (x.ga4BounceAllTraffic != null)
-    ? `<div class="mt-1">Row 18 shows NEEDS DATA: GA4 all-traffic bounce is ${x.ga4BounceAllTraffic.toFixed(1)}% but the graded value needs a Worker query filtered to paid-social landing pages.</div>` : '';
+  /* Row 18 note only when it's NOT wired (ga4-bounce failed); the wired
+     value carries all-traffic context in its own secondary. */
+  const bounceNote = (m.bounceRate == null && x.ga4BounceAllTraffic != null)
+    ? `<div class="mt-1 text-amber-600 dark:text-amber-400">Row 18 NEEDS DATA: /ga4-bounce didn't return; all-traffic bounce is ${x.ga4BounceAllTraffic.toFixed(1)}% (not the graded, paid-social-filtered value).</div>` : '';
+  /* Row 17 footnote: a slow landing page drags the whole funnel, so rows
+     14/15/16 are partly load-time driven, not purely checkout-driven. */
+  const row17Note = (x.lpWorst && x.lpWorst.lcp > 5)
+    ? `<div class="mt-1 text-amber-600 dark:text-amber-400">Row 17: at ${x.lpWorst.lcp.toFixed(1)}s mobile LCP on the top ad landing page, read rows 14/15/16 as partly load-time driven (slow pages lose users before cart/checkout), not purely funnel/checkout quality.</div>` : '';
   const activitiesNote = x.activitiesFailed
     ? `<div class="mt-1 text-rose-500 dark:text-rose-400">Row 22: /activities call failed (NEEDS DATA) — see console.</div>`
     : (x.activityCount != null
@@ -5501,7 +5608,7 @@ function renderBenchmarksPanel() {
       </div>
       <div class="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800/60 text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">
         <div><b class="text-slate-700 dark:text-slate-200">Currency:</b> CPC, CPM, CPL & CPA graded at $1 = ₹${BENCH_CONFIG.usdToInr.toFixed(2)} USD→INR${x.fxLive ? ` (live, as of ${escH(x.fxTimestamp || 'n/a')})` : ' (fallback ₹87)'} · <b class="text-slate-700 dark:text-slate-200">CPA ceiling AOV:</b> ${_binr(x.aovUsed || BENCH_CONFIG.aov)}${x.aovLive ? ' (Shopify)' : ' (fallback)'}</div>
-        ${acctNote}${recon}${bounceNote}${row15Note}${activitiesNote}${advantageNote}${unknownNote}${historyNote}
+        ${acctNote}${recon}${bounceNote}${row17Note}${row15Note}${activitiesNote}${advantageNote}${unknownNote}${historyNote}
         <div class="mt-1"><b class="text-slate-700 dark:text-slate-200">Source key:</b> API / API+ = Meta Insights · WORKER = needs a Worker route · MANUAL = manual-inputs.json${x.manualUpdated ? ` (updated ${escH(x.manualUpdated)})` : ''}.</div>
       </div>
     </div>`;
