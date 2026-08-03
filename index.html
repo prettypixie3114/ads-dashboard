@@ -5028,13 +5028,46 @@ async function benchAdData() {
   return { qualityAboveAvgPct, creativesPerAdset, creativeAgeDays };
 }
 
+/* Shape-agnostic budget extractor. Meta's activity extra_data varies:
+   a plain numeric string, a JSON-encoded string, or a nested object whose
+   budget sits under daily_budget / lifetime_budget / budget / value /
+   amount. Recurses through all of those so campaign-level (CBO) events
+   parse the same as ad-set ones. */
+function _benchBudgetVal(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (/^-?\d+(\.\d+)?$/.test(s.replace(/,/g, ''))) { const n = parseFloat(s.replace(/,/g, '')); return isFinite(n) ? n : null; }
+    try { return _benchBudgetVal(JSON.parse(s)); } catch (_) {}
+    const n = parseFloat(s); return isFinite(n) ? n : null;
+  }
+  if (typeof v === 'object') {
+    for (const k of ['daily_budget', 'lifetime_budget', 'budget', 'value', 'amount']) {
+      if (v[k] != null) { const r = _benchBudgetVal(v[k]); if (r != null) return r; }
+    }
+  }
+  return null;
+}
+/* Try the known old/new key pairings (flat and *_budget variants). */
+function _benchBudgetPair(ex) {
+  const pairs = [
+    ['old_value', 'new_value'], ['old_daily_budget', 'new_daily_budget'],
+    ['old_lifetime_budget', 'new_lifetime_budget'], ['old', 'new'], ['oldValue', 'newValue']
+  ];
+  for (const [ok, nk] of pairs) {
+    const o = _benchBudgetVal(ex[ok]), n = _benchBudgetVal(ex[nk]);
+    if (o != null && n != null) return { oldV: o, newV: n };
+  }
+  return { oldV: null, newV: null };
+}
+
 /* ── data source 4: activity log (row 22) ──
-   DIAGNOSTIC PASS: logs the raw call verbatim (URL, count, distinct
-   event_type values) and reports counts so a genuine zero-budget-edit
-   window ("No changes in range") is distinguishable from a failed/missing
-   fetch (NEEDS DATA). Query itself is UNCHANGED pending review — both
-   update_ad_set_budget and update_campaign_budget (CBO) are already
-   covered, and since/until are passed explicitly (not inherited). */
+   Budget edits are often CAMPAIGN-level (CBO) — update_campaign_budget with
+   NO update_ad_set_budget — and the extra_data shape for those isn't a flat
+   old_value/new_value, which is why the % came up empty. We now parse it
+   shape-agnostically (_benchBudgetPair) and log ONE raw extra_data payload
+   so the true field shape is visible instead of guessed. */
 async function benchActivities() {
   const path = `${accountId()}/activities`;
   const fields = 'event_type,extra_data,event_time';
@@ -5053,22 +5086,27 @@ async function benchActivities() {
                '· distinct event_type values:', typeCounts);
 
   const BUDGET = ['update_ad_set_budget', 'update_campaign_budget'];
-  let maxJump = null, jumpAdset = null, budgetEvents = 0;
+  let maxJump = null, jumpEntity = null, budgetEvents = 0, parsedOk = 0, sampled = false;
   rows.forEach(r => {
     if (!BUDGET.includes(r.event_type)) return;
     budgetEvents++;
+    if (!sampled) { sampled = true; console.info(`[benchmark] row22 SAMPLE raw extra_data (${r.event_type}):`, r.extra_data); }
     let ex; try { ex = typeof r.extra_data === 'string' ? JSON.parse(r.extra_data) : r.extra_data; } catch (_) { return; }
     if (!ex) return;
-    const oldV = parseFloat(ex.old_value ?? ex.oldValue ?? ex.old);
-    const newV = parseFloat(ex.new_value ?? ex.newValue ?? ex.new);
-    if (!isFinite(oldV) || !isFinite(newV) || oldV <= 0) return;
+    if (budgetEvents === 1) console.info('[benchmark] row22 SAMPLE parsed extra_data:', ex);
+    const { oldV, newV } = _benchBudgetPair(ex);
+    if (oldV == null || newV == null || oldV <= 0) return;
+    parsedOk++;
     const jump = (newV - oldV) / oldV * 100;
-    if (jump > 0 && (maxJump === null || jump > maxJump)) { maxJump = jump; jumpAdset = ex.name || ex.object_name || null; }
+    if (jump > 0 && (maxJump === null || jump > maxJump)) { maxJump = jump; jumpEntity = ex.name || ex.object_name || ex.entity_name || null; }
   });
-  console.info('[benchmark] /activities budget-change events (ad set + campaign):', budgetEvents, '· largest +% jump:', maxJump);
+  console.info(`[benchmark] /activities budget events: ${budgetEvents} (parsed ${parsedOk}) · largest +% jump:`, maxJump);
+  if (budgetEvents > 0 && parsedOk === 0) {
+    console.warn('[benchmark] row22: budget events found but none parsed — the SAMPLE extra_data above shows the real shape; extend _benchBudgetPair to match its keys.');
+  }
   return {
-    ok: true, maxBudgetJumpPct: maxJump, jumpAdset,
-    totalActivities: rows.length, budgetEvents, eventTypes: Object.keys(typeCounts)
+    ok: true, maxBudgetJumpPct: maxJump, jumpAdset: jumpEntity,
+    totalActivities: rows.length, budgetEvents, parsedOk, eventTypes: Object.keys(typeCounts)
   };
 }
 
@@ -5263,6 +5301,8 @@ async function loadBenchmarks(force) {
     aovLive, aovUsed: BENCH_CONFIG.aov,
     budgetJumpAdset: act?.jumpAdset || null,
     budgetNoChanges: !!(act && act.ok && act.budgetEvents === 0),
+    budgetEvents: (act && act.ok) ? act.budgetEvents : null,
+    budgetParsedOk: (act && act.ok) ? act.parsedOk : null,
     activitiesFailed: !!(act && act.ok === false),
     activityCount: (act && act.ok) ? act.totalActivities : null,
     activityTypes: (act && act.eventTypes) || [],
@@ -5343,6 +5383,10 @@ function renderBenchmarksPanel() {
     if (r.sl === 4 && x.ga4ConvRate != null) {
       shown += _bconv(`GA4: ${x.ga4ConvRate.toFixed(2)}% (purch÷sessions)`);
     }
+    /* row 22: name the entity with the largest budget jump */
+    if (r.sl === 22 && status !== 'na' && status !== 'none' && x.budgetJumpAdset) {
+      shown += _bconv(`largest: ${escH(x.budgetJumpAdset)}`);
+    }
     /* row 24: manual lastUpdated date + per-stage match-quality context
        (rows 14/15/16 are computed from these lower-quality funnel events). */
     if (r.sl === 24 && status !== 'na' && status !== 'none') {
@@ -5393,7 +5437,10 @@ function renderBenchmarksPanel() {
   const activitiesNote = x.activitiesFailed
     ? `<div class="mt-1 text-rose-500 dark:text-rose-400">Row 22: /activities call failed (NEEDS DATA) — see console.</div>`
     : (x.activityCount != null
-        ? `<div class="mt-1">Row 22 diagnostics: <b class="text-slate-700 dark:text-slate-200">${_bint(x.activityCount)}</b> activity events in range${x.activityTypes.length ? ` · types: <span class="font-mono">${escH(x.activityTypes.slice(0,8).join(', '))}</span>` : ''}${x.budgetNoChanges ? ' · no budget edits (rendered "No changes in range")' : ''}.</div>`
+        ? `<div class="mt-1">Row 22 diagnostics: <b class="text-slate-700 dark:text-slate-200">${_bint(x.activityCount)}</b> activity events${x.budgetEvents != null ? `, ${x.budgetEvents} budget edit${x.budgetEvents === 1 ? '' : 's'}` : ''} in range${x.activityTypes.length ? ` · types: <span class="font-mono">${escH(x.activityTypes.slice(0,8).join(', '))}</span>` : ''}${x.budgetNoChanges ? ' · none (rendered "No changes in range")' : ''}.` +
+          ((x.budgetEvents > 0 && x.budgetParsedOk === 0)
+            ? ` <span class="text-amber-600 dark:text-amber-400">Budget edits found but none parsed — the console SAMPLE shows the real extra_data shape.</span>`
+            : '') + `</div>`
         : '');
   /* Row 15 footnote: ATC→IC spans events of differing match quality (ATC 6.2
      vs IC 7.5), so the pixel-measured drop is overstated vs raw counts. */
