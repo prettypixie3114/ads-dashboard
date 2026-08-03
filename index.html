@@ -4661,6 +4661,45 @@ const BENCH_CONFIG = {
   grossMarginPct: 55     // contribution margin before ad cost, for the CPA ceiling
 };
 
+/* ── OUR two-stage goals (edit here) ────────────────────────────────
+   Additive context in the TARGET column — does NOT change the published
+   benchmark grading. Keyed by row #. Phase 1 is the active goal; the Final
+   goal is revealed only once Phase 1 is met on that row (per-row).
+     dir   : 'higher' = met when value ≥ target · 'lower' = met when ≤
+     value : optional — the metric to grade the TARGET against when it
+             differs from the row's published value (e.g. row 1 target is
+             ALL-clicks CTR, row 4 target is CVR ÷ clicks). Defaults to the
+             row's own calc().
+     label : shown under the target when the metric differs from the row. */
+const BENCH_TARGETS = {
+  1:  { phase1: 8,    final: 15,   dir: 'higher', fmt: v => v.toFixed(2) + '%', label: 'all-clicks CTR',
+        value: m => (m.impressions > 0 ? m.clicksAll / m.impressions * 100 : null) },
+  4:  { phase1: 0.9,  final: 3,    dir: 'higher', fmt: v => v.toFixed(2) + '%', label: 'CVR (÷ clicks)',
+        value: m => (m.clicksAll > 0 && m.purchases != null ? m.purchases / m.clicksAll * 100 : null) },
+  6:  { phase1: 2100, final: 1200, dir: 'lower',  fmt: v => '₹' + Math.round(v).toLocaleString('en-IN') },
+  7:  { phase1: 2,    final: 5,    dir: 'higher', fmt: v => v.toFixed(2) + '×' },
+  18: { phase1: 70,   final: 60,   dir: 'lower',  fmt: v => v.toFixed(1) + '%' }
+  /* Campaign budget (₹1,000→₹2,000/day) intentionally omitted — no benchmark
+     row and it's a Setup-tab compliance metric; adding it would cost a call. */
+};
+/* Target status + rendered cell for a row (null-safe; blank when no target). */
+function benchTargetCellHTML(r, m) {
+  const t = BENCH_TARGETS[r.sl];
+  if (!t) return '<span class="text-slate-300 dark:text-slate-600">—</span>';
+  let val = null;
+  try { val = t.value ? t.value(m) : r.calc(m); } catch (_) { val = null; }
+  const known = (val != null && isFinite(val));
+  const meets = tgt => t.dir === 'lower' ? val <= tgt : val >= tgt;
+  const p1Met = known && meets(t.phase1), finMet = known && meets(t.final);
+  let goal;
+  if (finMet)       goal = `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Final met (${t.fmt(t.final)})</span>`;
+  else if (p1Met)   goal = `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Phase 1 met</span> · <span class="text-slate-500 dark:text-slate-400">Final ${t.fmt(t.final)}</span>`;
+  else              goal = `<span class="text-slate-600 dark:text-slate-300">Phase 1 <b>${t.fmt(t.phase1)}</b></span>`;
+  const note = t.label
+    ? `<span class="block text-[10px] text-slate-400 dark:text-slate-500">${escH(t.label)}${known ? ': ' + t.fmt(val) : ''}</span>` : '';
+  return `<div class="text-[12px] whitespace-nowrap">${goal}${note}</div>`;
+}
+
 /* ── Campaign → class map for rows 8 & 9 (cold vs retargeting) ──
    Matched on the campaign-name PREFIX token (e.g. "C1 | …" → C1).
    Edit this one const to re-bucket; an unmatched campaign is treated
@@ -5615,6 +5654,7 @@ function renderBenchmarksPanel() {
       <td class="px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100">${escH(r.name)}<span class="block font-normal text-[11px] text-slate-400 dark:text-slate-500">${escH(subBase)}${subExtra}</span></td>
       <td class="px-3 py-2.5 text-[12px] font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap hidden md:table-cell">${escH(r.good)}</td>
       <td class="px-3 py-2.5 text-[12px] font-mono text-rose-500 dark:text-rose-400 whitespace-nowrap hidden md:table-cell">${escH(r.warn)}</td>
+      <td class="px-3 py-2.5">${benchTargetCellHTML(r, m)}</td>
       <td class="px-3 py-2.5 text-right text-sm font-mono font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap">${shown}</td>
       <td class="px-3 py-2.5 text-right"><span class="inline-block text-[10px] font-bold tracking-wider px-2 py-1 rounded ${tagCls}">${tagLabel}</span></td>
       <td class="px-3 py-2.5 text-[10px] font-mono text-slate-400 dark:text-slate-500 hidden md:table-cell" title="${srcTitle}">${r.src}</td>
@@ -5702,6 +5742,7 @@ function renderBenchmarksPanel() {
             <th class="${th}">#</th><th class="${th}">Metric</th>
             <th class="${th} hidden md:table-cell">Good</th>
             <th class="${th} hidden md:table-cell">Warning</th>
+            <th class="${th}">Target (ours)</th>
             <th class="${th} text-right">Your value</th>
             <th class="${th} text-right">Status</th>
             <th class="${th} hidden md:table-cell">Source</th>
