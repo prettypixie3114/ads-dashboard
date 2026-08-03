@@ -4810,12 +4810,13 @@ BENCH_ROWS.forEach(r => {
   }
 });
 
-const BENCH_LABEL = { good:'GOOD', watch:'WATCH', bad:'WARNING', na:'NEEDS DATA' };
+const BENCH_LABEL = { good:'GOOD', watch:'WATCH', bad:'WARNING', na:'NEEDS DATA', rate:'RATE LIMITED' };
 const BENCH_TAG = {
   good:'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10',
   watch:'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',
   bad:'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10',
-  na:'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40'
+  na:'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/40',
+  rate:'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10'
 };
 
 /* ── Meta Insights row → metrics object (ported) ── */
@@ -4902,48 +4903,41 @@ async function benchAccountFromDashboard() {
     actions: toArr(acc._a), action_values: toArr(acc._av)
   };
 }
-async function benchAccountInsights() {
-  /* Supplementary call: reach (true, de-duplicated) + video fields. A bad
-     optional (video) field 400s the whole request, so we bisect and degrade
-     only the affected video rows. */
-  const BASE = ['reach','impressions','actions'];
-  const OPTIONAL = ['video_play_actions','video_thruplay_watched_actions'];
-  const timeRange = { since: APP.since, until: APP.until };
-  const probe = async fieldsArr => {
-    /* metaFetch throws `${message} (code ${code})` on a Meta error — that is
-       Meta's verbatim 400 body message. */
-    return metaFetch(`${accountId()}/insights`, { fields: fieldsArr.join(','), time_range: timeRange, limit: 1 });
-  };
+/* Detect a Meta rate-limit / throttle error (app limit #4, user limit #17,
+   "request limit reached"). We BACK OFF on these — never retry in the same
+   load. */
+function _benchIsRateLimit(msg) {
+  return /\bcode 4\b|\(#4\)|\bcode 17\b|\(#17\)|request limit reached|user request limit|rate limit|too many calls|throttl/i.test(String(msg || ''));
+}
 
-  /* 1) try the full field set */
+/* ── data source 1: ONE account-level Insights call for rows 1-16 ──
+   All the fields those rows need, in a single call. No video_play_actions
+   (removed in Graph v19 — that field is what 400'd and triggered the old
+   4-call bisect); the 3-second metric comes from actions 'video_view'. So:
+   one request, no retry, no bisect. Account-level aggregation equals the
+   sum of the campaign rows the META ADS tab shows, so rows 1-7 still match. */
+async function benchAccountAll() {
+  const fields = 'spend,impressions,reach,clicks,inline_link_clicks,actions,action_values,video_thruplay_watched_actions';
+  const rows = await fetchAllPages(`${accountId()}/insights`, {
+    fields, time_range: { since: APP.since, until: APP.until }
+  });
+  return rows[0] || null;
+}
+
+/* ── Meta response cache: 15 min, keyed on the date range ──
+   A hard-refresh within the window fires ZERO Meta calls — this is the main
+   defence against the rate limit while testing. Bundle = the raw results of
+   every Meta source for the range. */
+const BENCH_META_TTL = 15 * 60 * 1000;
+function benchMetaCacheGet(key) {
   try {
-    const rows = await fetchAllPages(`${accountId()}/insights`, {
-      fields: BASE.concat(OPTIONAL).join(','), time_range: timeRange
-    });
-    return { row: rows[0] || null, fieldsUsed: BASE.concat(OPTIONAL), dropped: [], error: null };
-  } catch (e) {
-    console.warn('[benchmark] account-level Insights 400 on full field set — Meta says:', e.message);
-    console.warn('[benchmark] full fields were:', BASE.concat(OPTIONAL).join(','));
-  }
-
-  /* 2) bisect: keep only optional fields Meta accepts, report which break */
-  const good = [], dropped = [];
-  for (const f of OPTIONAL) {
-    try { await probe(BASE.concat(f)); good.push(f); }
-    catch (e) { dropped.push(f); console.warn(`[benchmark] optional field "${f}" rejected → dropping it. Meta says:`, e.message); }
-  }
-
-  /* 3) final fetch with base + surviving optional fields */
-  try {
-    const rows = await fetchAllPages(`${accountId()}/insights`, {
-      fields: BASE.concat(good).join(','), time_range: timeRange
-    });
-    console.info('[benchmark] account-level Insights recovered with fields:', BASE.concat(good).join(','));
-    return { row: rows[0] || null, fieldsUsed: BASE.concat(good), dropped, error: null };
-  } catch (e) {
-    console.error('[benchmark] account-level Insights failed even on base fields — Meta says:', e.message);
-    return { row: null, fieldsUsed: [], dropped: OPTIONAL, error: e.message };
-  }
+    const c = JSON.parse(localStorage.getItem('benchMetaCache') || 'null');
+    if (c && c.key === key && (Date.now() - c.at) < BENCH_META_TTL) return c;
+  } catch (_) {}
+  return null;
+}
+function benchMetaCacheSet(key, bundle) {
+  try { localStorage.setItem('benchMetaCache', JSON.stringify({ key, at: Date.now(), bundle })); } catch (_) {}
 }
 
 /* ── data source 2: ad-set level (rows 8, 9, 23) ── */
@@ -4967,14 +4961,16 @@ async function benchAdsetData() {
   const freqCold     = buckets.cold.reach     > 0 ? buckets.cold.impr / buckets.cold.reach : null;
   const freqRetarget = buckets.retarget.reach > 0 ? buckets.retarget.impr / buckets.retarget.reach : null;
 
-  /* learning phase (row 23): ad sets currently LEARNING → conversions/adset/week */
-  let weeklyConvPerAdset = null;
+  /* ONE ad-set entity read — carries learning_stage_info (row 23) AND
+     targeting (row 25 "in use" filtering), so audiences no longer needs its
+     own /adsets call. */
+  let weeklyConvPerAdset = null, entities = [];
   try {
-    const adsets = await fetchAllPages(`${accountId()}/adsets`, {
-      fields: 'id,name,effective_status,learning_stage_info',
+    entities = await fetchAllPages(`${accountId()}/adsets`, {
+      fields: 'id,name,effective_status,learning_stage_info,targeting',
       effective_status: ['ACTIVE', 'PAUSED']
     });
-    const learning = adsets.filter(s => s.learning_stage_info && s.learning_stage_info.status === 'LEARNING');
+    const learning = entities.filter(s => s.learning_stage_info && s.learning_stage_info.status === 'LEARNING');
     if (learning.length) {
       const convByAdset = {};
       ins.forEach(r => { convByAdset[r.adset_id] = _benchActionCount(r.actions, 'offsite_conversion.fb_pixel_purchase') || 0; });
@@ -4986,7 +4982,7 @@ async function benchAdsetData() {
   } catch (_) { /* learning row degrades to NEEDS DATA */ }
 
   const advantagePlus = [...coldNames].filter(n => n.startsWith('TAH-Advantage+'));
-  return { freqCold, freqRetarget, weeklyConvPerAdset, unknownCampaigns: [...unknownCampaigns], advantagePlus };
+  return { freqCold, freqRetarget, weeklyConvPerAdset, unknownCampaigns: [...unknownCampaigns], advantagePlus, entities };
 }
 
 /* ── data source 3: ad level (rows 19, 20, 21) ── */
@@ -5088,9 +5084,18 @@ async function benchActivities() {
   const path = `${accountId()}/activities`;
   const fields = 'event_type,extra_data,event_time,object_name';
   const urlForLog = `${CONFIG.API.META_BASE}/${path}?fields=${fields}&since=${APP.since}&until=${APP.until}`;
-  let rows;
+  /* Paginate at 500/page (not the default 100) so a busy range is 1-2 calls,
+     not 7. Capped so a runaway can't hammer the quota. */
+  let rows = [];
   try {
-    rows = await fetchAllPages(path, { fields, since: APP.since, until: APP.until });
+    let page = await metaFetch(path, { fields, since: APP.since, until: APP.until, limit: 500 });
+    rows.push(...(page.data || []));
+    while (page.paging && page.paging.next && rows.length < 3000) {
+      const nxt = new URL(page.paging.next);
+      const np = Object.fromEntries(nxt.searchParams.entries()); delete np.access_token;
+      page = await metaFetch(path, np);
+      rows.push(...(page.data || []));
+    }
   } catch (e) {
     console.error('[benchmark] /activities FAILED:', e.message, '\n  URL:', urlForLog);
     return { ok: false, error: e.message, maxBudgetJumpPct: null, jumpAdset: null };
@@ -5132,21 +5137,20 @@ async function benchActivities() {
 }
 
 /* ── data source 5: custom audiences (row 25) ── */
-async function benchAudiences() {
+/* Row 25 — ONE customaudiences call. "In use" filtering reuses the ad-set
+   entities already fetched by benchAdsetData (no separate /adsets call). */
+async function benchAudiences(adsetEntities) {
   const auds = await fetchAllPages(`${accountId()}/customaudiences`, { fields: 'id,name,retention_days' });
-  /* which audiences are in use by active ad sets */
   let inUseIds = null;
-  try {
-    const adsets = await fetchAllPages(`${accountId()}/adsets`, {
-      fields: 'id,targeting', effective_status: ['ACTIVE']
-    });
+  if (Array.isArray(adsetEntities) && adsetEntities.length) {
     inUseIds = new Set();
-    adsets.forEach(s => {
+    adsetEntities.forEach(s => {
+      if (s.effective_status && s.effective_status !== 'ACTIVE') return;
       const ca = s.targeting && s.targeting.custom_audiences;
       if (Array.isArray(ca)) ca.forEach(x => inUseIds.add(String(x.id)));
     });
-    if (!inUseIds.size) inUseIds = null; /* targeting not returned → fall back to all */
-  } catch (_) { inUseIds = null; }
+    if (!inUseIds.size) inUseIds = null; /* none referenced → fall back to all */
+  }
   const used = auds.filter(a => a.retention_days != null && (!inUseIds || inUseIds.has(String(a.id))));
   const days = used.map(a => Number(a.retention_days)).filter(d => isFinite(d));
   if (!days.length) return { retargetWindowDays: null, range: null };
@@ -5310,42 +5314,44 @@ async function loadBenchmarks(force) {
   B.loading = true; B.error = null;
   if (APP.source === 'benchmark') renderBenchmarksPanel();
 
-  /* Rows 1-7 & 13-16 come from the SAME fetch the META ADS tab reads.
-     loadInsights() populates APP.campaignInsightsList + APP.ga4 exactly as
-     the Meta tab does, so acceptance #1 compares like with like (no second
-     account call seconds apart on today's still-accruing data). */
-  if (force || !(APP.campaignInsightsList && APP.campaignInsightsList.length)) {
-    try { await loadInsights(); } catch (e) { console.warn('[benchmark] loadInsights failed:', e.message); }
+  /* ══ Meta bundle — 15-min cache keyed on the range. A hard-refresh within
+     the window fires ZERO Meta Graph calls (the main defence against the
+     rate limit while testing). One call per level, NO retry/bisect, and we
+     BACK OFF on a 403 / #4 / #17 — never re-fire on the same load. ══ */
+  let rateLimited = false;
+  const rlCheck = msg => { if (_benchIsRateLimit(msg)) rateLimited = true; };
+  let bundle, metaCachedAt = null;
+  const cachedMeta = (!force) && benchMetaCacheGet(key);
+  if (cachedMeta) {
+    bundle = cachedMeta.bundle; metaCachedAt = cachedMeta.at;
+    console.info('[benchmark] Meta bundle from cache (age', Math.round((Date.now() - cachedMeta.at) / 1000) + 's) — 0 Meta calls');
+  } else {
+    const guard = async (label, fn) => {
+      try { return await fn(); }
+      catch (e) { rlCheck(e && e.message); console.warn(`[benchmark] ${label} failed:`, e && e.message); return null; }
+    };
+    const [acctRow, adsetR, adR, actR] = await Promise.all([
+      guard('account-insights', benchAccountAll),  // rows 1-16
+      guard('adset', benchAdsetData),              // rows 8/9/23 (+ entities → row 25)
+      guard('ad', benchAdData),                    // rows 19/20/21
+      guard('activities', benchActivities)         // row 22
+    ]);
+    if (actR && actR.ok === false) rlCheck(actR.error);
+    const audR = await guard('audiences', () => benchAudiences(adsetR && adsetR.entities)); // row 25
+    bundle = { acct: acctRow, adset: adsetR, ad: adR, act: actR, aud: audR };
+    if (!rateLimited && acctRow) benchMetaCacheSet(key, bundle);  /* never cache a throttled/empty load */
+    console.info('[benchmark] Meta bundle fetched live' + (rateLimited ? ' (RATE LIMITED — backing off, not cached)' : ' & cached 15 min'));
   }
+  B.rateLimited = rateLimited;
+  B.metaFromCache = !!cachedMeta;
 
-  const settled = await Promise.allSettled([
-    benchAccountFromDashboard(), // 0 primary (like-with-like): spend/impr/clicks/actions/values
-    benchAccountInsights(),      // 1 supplementary: true reach + video fields
-    benchAdsetData(),            // 2
-    benchAdData(),               // 3
-    benchActivities(),           // 4
-    benchAudiences(),            // 5
-    benchFxRate(),               // 6
-    benchManualInputs(),         // 7
-    loadShopify(),               // 8 → APP.shopify (row 6 AOV + reconciliation)
-    benchLoadHistory(),          // 9 → committed history freshness (gap watchdog)
-    benchGa4Bounce()             // 10 → row 18 paid-social bounce + ad landing pages (row 17)
+  /* Non-Meta sources (worker/local — not subject to the Meta quota). */
+  const [fx, manual, , , hist, bounce] = await Promise.all([
+    benchFxRate(), benchManualInputs(), loadShopify(), loadGa4(), benchLoadHistory(), benchGa4Bounce()
   ]);
-  const V = i => settled[i].status === 'fulfilled' ? settled[i].value : null;
-  const base = V(0);
-  const suppRes = V(1) || {};
-  const supp = suppRes.row || null;
-  const adset = V(2), ad = V(3), act = V(4), aud = V(5), fx = V(6), manual = V(7), hist = V(9), bounce = V(10);
 
-  /* merge: base (shared fetch) is authoritative for the acceptance metrics;
-     the supplementary call supplies true de-duplicated reach + the video
-     fields the shared fetch doesn't request. */
-  const acct = base ? { ...base } : (supp ? { ...supp } : null);
-  if (acct && supp) {
-    if (Number(supp.reach) > 0) acct.reach = Number(supp.reach);
-    if (supp.video_play_actions) acct.video_play_actions = supp.video_play_actions;
-    if (supp.video_thruplay_watched_actions) acct.video_thruplay_watched_actions = supp.video_thruplay_watched_actions;
-  }
+  const acct = bundle.acct || null;
+  const adset = bundle.adset, ad = bundle.ad, act = bundle.act, aud = bundle.aud;
 
   const usdToInr = (fx && fx.rate > 0) ? fx.rate : BENCH_CONFIG.usdToInr;
   const shop = (APP.shopify && APP.shopify.totals) || {};
@@ -5398,8 +5404,8 @@ async function loadBenchmarks(force) {
     audienceRange: aud?.range || null,
     unknownCampaigns: adset?.unknownCampaigns || [],
     advantagePlus: adset?.advantagePlus || [],
-    acctError: base ? null : (suppRes.error || 'shared Insights (loadInsights) returned no rows'),
-    acctDropped: suppRes.dropped || [],
+    acctError: acct ? null : (rateLimited ? 'rate_limited' : 'account Insights returned no rows'),
+    rateLimited, metaFromCache: !!cachedMeta, metaCachedAt,
     videoFallback: !!m.video3sIsFallback,
     lpPages: psCache.done,          /* [{url,lcp}] worst-first, cached */
     lpWorst: psCache.worst || null,
@@ -5412,7 +5418,7 @@ async function loadBenchmarks(force) {
     historyLastDate: (hist && hist.lastDate) || null,
     historyDayCount: hist ? hist.count : null,
     sources: {
-      account: !!base, reach: !!supp, adset: !!adset, ad: !!ad, activities: !!act,
+      account: !!acct, reach: !!acct, adset: !!adset, ad: !!ad, activities: !!act,
       audiences: !!aud, shopify: !!APP.shopify.totals, ga4: !!APP.ga4.totals,
       pagespeed: !!psCache.worst, manual: !!manual, fx: !!(fx && fx.rate > 0)
     }
@@ -5482,8 +5488,16 @@ function renderBenchmarksPanel() {
       noneCount++;
     } else {
       status = (v === null || v === undefined || !isFinite(v)) ? 'na' : r.grade(v);
-      shown = (status === 'na') ? muted : r.fmt(v);
-      tally[status]++;
+      /* A Meta-derived row that's blank DURING a throttle is RATE LIMITED,
+         not NEEDS DATA — different states. (Non-Meta rows keep their own.) */
+      if (status === 'na' && x.rateLimited && (r.src === 'API' || r.src === 'API+')) {
+        status = 'rate';
+        shown = '<span class="text-orange-600 dark:text-orange-400">rate limited</span>';
+        noneCount++;
+      } else {
+        shown = (status === 'na') ? muted : r.fmt(v);
+        tally[status]++;
+      }
     }
     renderedCount++;
 
@@ -5598,10 +5612,13 @@ function renderBenchmarksPanel() {
   }
   const advantageNote = (x.advantagePlus && x.advantagePlus.length)
     ? `<div class="mt-1">Rows 8/9: <b class="text-slate-700 dark:text-slate-200">${escH(x.advantagePlus.join(', '))}</b> (Advantage+ Shopping) is bucketed as <b>cold</b> though it's a mixed audience — read the cold frequency with that caveat.</div>` : '';
-  const acctNote = x.acctError
-    ? `<div class="mt-1 text-rose-500 dark:text-rose-400">Account Insights failed (rows 1–16 NEEDS DATA). Meta says: ${escH(x.acctError)}</div>`
-    : ((x.acctDropped && x.acctDropped.length)
-        ? `<div class="mt-1 text-amber-600 dark:text-amber-400">Account Insights: dropped field(s) Meta rejected — <span class="font-mono">${escH(x.acctDropped.join(', '))}</span>. Only the affected video rows degrade; other account rows are unaffected.</div>` : '');
+  /* One throttle line (not per row) + a cache-age indicator. */
+  const rateNote = x.rateLimited
+    ? `<div class="mt-1 text-orange-600 dark:text-orange-400"><b>⚠ RATE LIMITED by Meta</b> (#4/#17) — Meta-sourced rows show "rate limited" (distinct from NEEDS DATA). Retry in ~15 min; the panel re-fetches and re-caches once the quota resets, and won't re-fire on refresh meanwhile.</div>`
+    : (x.metaFromCache && x.metaCachedAt
+        ? `<div class="mt-1 text-slate-400 dark:text-slate-500">Meta data cached ${Math.max(0, Math.round((Date.now() - x.metaCachedAt) / 60000))} min ago (auto-refreshes after 15 min; a page refresh reuses it — no new Meta calls).</div>` : '');
+  const acctNote = (x.acctError && x.acctError !== 'rate_limited')
+    ? `<div class="mt-1 text-rose-500 dark:text-rose-400">Account Insights failed (rows 1–16 NEEDS DATA). Meta says: ${escH(x.acctError)}</div>` : '';
 
   host.innerHTML = `
     <div class="rounded-2xl border border-slate-200/60 dark:border-slate-700/40 overflow-hidden bg-white/80 dark:bg-slate-800/30">
@@ -5634,7 +5651,7 @@ function renderBenchmarksPanel() {
       </div>
       <div class="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800/60 text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">
         <div><b class="text-slate-700 dark:text-slate-200">Currency:</b> CPC, CPM, CPL & CPA graded at $1 = ₹${BENCH_CONFIG.usdToInr.toFixed(2)} USD→INR${x.fxLive ? ` (live, as of ${escH(x.fxTimestamp || 'n/a')})` : ' (fallback ₹87)'} · <b class="text-slate-700 dark:text-slate-200">CPA ceiling AOV:</b> ${_binr(x.aovUsed || BENCH_CONFIG.aov)}${x.aovLive ? ' (Shopify)' : ' (fallback)'}</div>
-        ${acctNote}${recon}${bounceNote}${row17Note}${row15Note}${activitiesNote}${advantageNote}${unknownNote}${historyNote}
+        ${rateNote}${acctNote}${recon}${bounceNote}${row17Note}${row15Note}${activitiesNote}${advantageNote}${unknownNote}${historyNote}
         <div class="mt-1"><b class="text-slate-700 dark:text-slate-200">Source key:</b> API / API+ = Meta Insights · WORKER = needs a Worker route · MANUAL = manual-inputs.json${x.manualUpdated ? ` (updated ${escH(x.manualUpdated)})` : ''}.</div>
       </div>
     </div>`;
