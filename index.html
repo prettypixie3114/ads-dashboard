@@ -4496,8 +4496,8 @@ function renderShopifyCards() {
     return;
   }
   if (s.loading && !s.totals) {
-    host.innerHTML = `${heading}<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">` +
-      Array.from({ length: 4 }).map(() => kpiCardHTML('', '<span class="skeleton inline-block w-16 h-5 rounded"></span>')).join('') +
+    host.innerHTML = `${heading}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">` +
+      Array.from({ length: 5 }).map(() => kpiCardHTML('', '<span class="skeleton inline-block w-16 h-5 rounded"></span>')).join('') +
       '</div>';
     return;
   }
@@ -4509,14 +4509,18 @@ function renderShopifyCards() {
 
   const t = s.totals;
   const muted = '<span class="text-slate-400 dark:text-slate-500">—</span>';
+  const reversal = Number(t.returns) > 0
+    ? `<span class="text-rose-600 dark:text-rose-400">−${_gMoney0(t.returns)}</span>`
+    : _gMoney0(0);
   const cards = [
-    kpiCardHTML('Gross Sales', _gMoney0(t.grossSales), { mono: true, title: 'Shopify gross sales — product revenue before discounts, returns, tax & shipping' }),
-    kpiCardHTML('Net Sales',   _gMoney0(t.netSales),   { mono: true, title: 'Gross − discounts − returns (matches Shopify’s Net sales)' }),
+    kpiCardHTML('Gross Sales', _gMoney0(t.grossSales), { mono: true, title: 'Shopify gross sales — product revenue before discounts, sales reversals, tax & shipping' }),
+    kpiCardHTML('Sales Reversals', reversal, { mono: true, title: 'Shopify “Sales reversals” — returns/cancellations that reduce sales (Net = Gross − discounts − sales reversals)' }),
+    kpiCardHTML('Net Sales',   _gMoney0(t.netSales),   { mono: true, title: 'Gross − discounts − sales reversals (matches Shopify’s Net sales)' }),
     kpiCardHTML('Orders',      _gInt(t.orders)),
     kpiCardHTML('Avg. Order Value', Number(t.averageOrderValue) > 0 ? _gMoney0(t.averageOrderValue) : muted, { mono: true }),
   ].join('');
   const refreshing = s.loading ? '<span class="ml-2 text-[10px] text-slate-400 dark:text-slate-500 normal-case font-normal tracking-normal">refreshing…</span>' : '';
-  host.innerHTML = `${heading.replace('</div>', refreshing + '</div>')}<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">${cards}</div>`;
+  host.innerHTML = `${heading.replace('</div>', refreshing + '</div>')}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">${cards}</div>`;
 }
 
 function renderCombined() {
