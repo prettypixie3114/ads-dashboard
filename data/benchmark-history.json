@@ -1,4 +1,50 @@
 {
   "_note": "Daily versioned benchmark snapshots keyed by date (YYYY-MM-DD). Written by the token-free GitHub Action (.github/workflows/benchmark-snapshot.yml → scripts/benchmark-snapshot.mjs), which calls the Worker's /benchmark-snapshot route (Meta token stays in the Worker, never in GitHub). Runs daily without the dashboard open. A failed run writes nothing (the day is simply absent). Backfill a missed day via the workflow's manual run with a date input. Trend arrows (rows 14/15/16) will read from here once a few full days exist. Seeded empty.",
-  "days": {}
+  "days": {
+    "2026-08-25": {
+      "savedAt": "2026-08-26T12:41:29.570Z",
+      "since": "2026-08-25",
+      "until": "2026-08-25",
+      "metrics": {
+        "1": 1.6515017690928762,
+        "2": 25.74776582278481,
+        "3": 425.2248080651821,
+        "4": 0.47641734159123394,
+        "6": 8136.294,
+        "7": 0.7700696410429613,
+        "10": 8.232422742642715,
+        "11": 1.5657909177855243,
+        "12": 10.456023896448723,
+        "13": 11.221849995557669,
+        "14": 6.002858504049548,
+        "15": 15.873015873015872,
+        "16": 50
+      },
+      "raw": {
+        "spend": 81362.94,
+        "impressions": 191341,
+        "reach": 150650,
+        "linkClicks": 3160,
+        "lpv": 2099,
+        "atc": 126,
+        "ic": 20,
+        "purchases": 10,
+        "purchaseValue": 62655.13,
+        "postEng": 21472,
+        "leads": null,
+        "video3s": 15752,
+        "thruplay": 2996
+      },
+      "shopify": {
+        "aov": 6353.052,
+        "orders": 12,
+        "grossSales": 82698,
+        "netSales": 58181.13
+      },
+      "ga4": {
+        "sessions": 3628,
+        "bounceRate": 0.9958654906284454
+      }
+    }
+  }
 }
