@@ -159,7 +159,17 @@ async function handleShopify(env, since, until, cors) {
   if (missing.length) {
     return json({ error: `Worker missing secrets: ${missing.join(", ")}` }, 500, cors);
   }
-  const domain = String(env.SHOPIFY_STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  /* Shopify Admin API MUST target the {store}.myshopify.com domain. A CUSTOM
+     storefront domain (e.g. prettypixie.com) proxied through this same
+     Cloudflare account resolves back into the zone and returns Cloudflare's
+     "error code: 1042" loop-prevention page — which then fails JSON.parse.
+     Normalise, and require the myshopify domain so Admin calls never hit a
+     Cloudflare-proxied custom domain. */
+  let domain = String(env.SHOPIFY_STORE_DOMAIN).trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
+  if (!/\.myshopify\.com$/.test(domain)) {
+    console.error("[worker] handleShopify: SHOPIFY_STORE_DOMAIN is not a *.myshopify.com admin domain:", domain);
+    return json({ error: `Shopify Admin API needs the *.myshopify.com domain; SHOPIFY_STORE_DOMAIN is "${domain}". Set it to your-store.myshopify.com — a custom storefront domain proxied through Cloudflare triggers the 1042 loop.` }, 500, cors);
+  }
   const version = env.SHOPIFY_API_VERSION || "2025-10";
   const endpoint = `https://${domain}/admin/api/${version}/graphql.json`;
   const shopifyql = `FROM sales SHOW orders, gross_sales, discounts, returns, net_sales, shipping_charges, taxes, total_sales, average_order_value SINCE ${since} UNTIL ${until}`;
@@ -179,10 +189,16 @@ async function handleShopify(env, since, until, cors) {
       },
       body: JSON.stringify({ query: gql, variables: { q: shopifyql } })
     });
-    if (!r.ok) {
-      const errText = await r.text();
-      console.error("[worker] handleShopify upstream NOT OK — status", r.status, "body:", errText);
-      return json({ error: `Shopify API ${r.status}: ${errText}` }, 502, cors);
+    /* Guard before JSON.parse: a non-2xx OR non-JSON body (e.g. a Cloudflare
+       1042 HTML/text page) must surface as a clear, labelled error — not a
+       generic "Unexpected token 'e' … is not valid JSON" SyntaxError. */
+    const ctype = (r.headers.get("content-type") || "").toLowerCase();
+    if (!r.ok || !ctype.includes("application/json")) {
+      const raw = (await r.text()).slice(0, 500);
+      console.error("[worker] handleShopify bad response — url", endpoint, "status", r.status, "content-type", ctype || "(none)", "body:", raw);
+      const hint = /1042|error code/i.test(raw)
+        ? " — looks like Cloudflare 1042 (this hostname is proxied through the Worker's own Cloudflare account; use the *.myshopify.com domain)" : "";
+      return json({ error: `Shopify Admin API bad response: status ${r.status}, content-type ${ctype || "none"} from ${endpoint}${hint}. Body: ${raw}` }, 502, cors);
     }
     const data = await r.json();
     if (data.errors) {
