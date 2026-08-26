@@ -78,6 +78,7 @@ async function handleGa4(env, since, until, cors) {
     });
     if (!r.ok) {
       const errText = await r.text();
+      console.error("[worker] handleGa4 upstream NOT OK — status", r.status, "body:", errText);
       return json({ error: `GA4 API ${r.status}: ${errText}` }, 502, cors);
     }
     const data = await r.json();
@@ -180,6 +181,7 @@ async function handleShopify(env, since, until, cors) {
     });
     if (!r.ok) {
       const errText = await r.text();
+      console.error("[worker] handleShopify upstream NOT OK — status", r.status, "body:", errText);
       return json({ error: `Shopify API ${r.status}: ${errText}` }, 502, cors);
     }
     const data = await r.json();
@@ -379,7 +381,7 @@ async function handleGa4Bounce(env, since, until, cors) {
       headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    if (!r.ok) { const t = await r.text(); return json({ error: `GA4 API ${r.status}: ${t}` }, 502, cors); }
+    if (!r.ok) { const t = await r.text(); console.error("[worker] handleGa4Bounce upstream NOT OK — status", r.status, "body:", t); return json({ error: `GA4 API ${r.status}: ${t}` }, 502, cors); }
     const d = await r.json();
     const rows = d.rows || [];
     let totSess = 0, weighted = 0;
@@ -421,8 +423,16 @@ async function handleBenchmarkSnapshot(request, env, since, until, cors) {
       `&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}` +
       `&access_token=${encodeURIComponent(env.META_ACCESS_TOKEN)}`;
     const mr = await fetch(insUrl);
+    if (!mr.ok) {
+      const bodyText = await mr.text();
+      console.error("[benchmark-snapshot] Meta Insights upstream NOT OK — status", mr.status, "body:", bodyText);
+      return json({ error: `Meta Insights ${mr.status}: ${bodyText}` }, 502, cors);
+    }
     const md = await mr.json();
-    if (md.error) return json({ error: `Meta API: ${md.error.message} (code ${md.error.code})` }, 502, cors);
+    if (md.error) {
+      console.error("[benchmark-snapshot] Meta Insights returned error object — status", mr.status, "error:", JSON.stringify(md.error));
+      return json({ error: `Meta API: ${md.error.message} (code ${md.error.code})` }, 502, cors);
+    }
     const row = (md.data && md.data[0]) || {};
     const a = row.actions || [], av = row.action_values || [];
 
@@ -446,17 +456,19 @@ async function handleBenchmarkSnapshot(request, env, since, until, cors) {
     let shop, ga4;
     try {
       const sd = await (await handleShopify(env, since, until, cors)).json();
-      if (sd.error || !sd.totals) return json({ error: `snapshot incomplete — Shopify leg failed: ${sd.error || "no totals"}` }, 502, cors);
-      if (Number(sd.totals.orders) === 0) return json({ error: "snapshot incomplete — Shopify returned zero orders (zero-day rejected)" }, 502, cors);
+      if (sd.error || !sd.totals) { console.error("[benchmark-snapshot] Shopify leg failed:", sd.error || "no totals"); return json({ error: `snapshot incomplete — Shopify leg failed: ${sd.error || "no totals"}` }, 502, cors); }
+      if (Number(sd.totals.orders) === 0) { console.error("[benchmark-snapshot] Shopify zero orders for", since, until); return json({ error: "snapshot incomplete — Shopify returned zero orders (zero-day rejected)" }, 502, cors); }
       shop = sd.totals;
     } catch (e) {
+      console.error("[benchmark-snapshot] Shopify leg threw:", e && (e.stack || e.message || e));
       return json({ error: `snapshot incomplete — Shopify leg threw: ${e.message || e}` }, 502, cors);
     }
     try {
       const gd = await (await handleGa4(env, since, until, cors)).json();
-      if (gd.error || !gd.totals) return json({ error: `snapshot incomplete — GA4 leg failed: ${gd.error || "no totals"}` }, 502, cors);
+      if (gd.error || !gd.totals) { console.error("[benchmark-snapshot] GA4 leg failed:", gd.error || "no totals"); return json({ error: `snapshot incomplete — GA4 leg failed: ${gd.error || "no totals"}` }, 502, cors); }
       ga4 = gd.totals;
     } catch (e) {
+      console.error("[benchmark-snapshot] GA4 leg threw:", e && (e.stack || e.message || e));
       return json({ error: `snapshot incomplete — GA4 leg threw: ${e.message || e}` }, 502, cors);
     }
 
