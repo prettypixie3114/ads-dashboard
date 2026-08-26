@@ -51,5 +51,8 @@ jobs:
           else
             git add data/benchmark-history.json
             git commit -m "chore(benchmarks): daily snapshot $(date -u +%Y-%m-%d)"
-            git push
+            # Rebase onto the latest remote so we never race another push
+            # (the checkout can go stale between compute and push).
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
