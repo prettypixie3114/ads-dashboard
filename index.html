@@ -4568,6 +4568,7 @@ function renderCombined() {
 
   /* ── Merged KPI cards ── */
   kpiRow.innerHTML = [
+    kpiCardHTML('Blended ROAS',  cROAS !== null && cVal > 0 ? `${cROAS.toFixed(2)}×` : muted, { mono: true, title: 'Combined conversion value ÷ combined spend' }),
     kpiCardHTML('Total Spend',   _gMoney(cSpend), { mono: true }),
     kpiCardHTML('Impressions',   _gInt(cImpr)),
     kpiCardHTML('Clicks',        _gInt(cClk)),
@@ -4576,7 +4577,6 @@ function renderCombined() {
     kpiCardHTML('Blended CAC',   cConv > 0 ? _gMoney(cSpend / cConv) : muted, { mono: true, id: 'kpiCACCombined', title: 'Combined spend ÷ combined conversions' }),
     kpiCardHTML('Blended Conv. Rate', cClk > 0 ? `${(cConv / cClk * 100).toFixed(2)}%` : muted, { id: 'kpiCVRCombined', title: 'Combined conversions ÷ combined clicks' }),
     kpiCardHTML('Conv. Value',   cVal > 0 ? _gMoney0(cVal) : muted, { mono: true }),
-    kpiCardHTML('Blended ROAS',  cROAS !== null && cVal > 0 ? `${cROAS.toFixed(2)}×` : muted, { mono: true, title: 'Combined conversion value ÷ combined spend' }),
   ].join('');
 
   /* ── Comparison table cells ── */
