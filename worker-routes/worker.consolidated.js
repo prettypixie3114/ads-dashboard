@@ -180,6 +180,25 @@ async function handleShopify(env, since, until, cors) {
         tableData { columns { name } rows }
       }
     }`;
+  /* Units sold runs as its own query, in parallel, so a ShopifyQL error on
+     that one column can never take down gross/net/orders. */
+  const unitsP = fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": env.SHOPIFY_ADMIN_TOKEN,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ query: gql, variables: { q: `FROM sales SHOW net_items_sold SINCE ${since} UNTIL ${until}` } })
+  }).then(async (ur) => {
+    const ud = await ur.json();
+    const uq = ud.data && ud.data.shopifyqlQuery;
+    if (ud.errors || !uq || uq.parseErrors && uq.parseErrors.length) {
+      return { unitsSold: null, unitsError: JSON.stringify(ud.errors || uq && uq.parseErrors || "no data") };
+    }
+    const urow = uq.tableData && uq.tableData.rows && uq.tableData.rows[0] || {};
+    const n = parseFloat(urow.net_items_sold);
+    return { unitsSold: Number.isFinite(n) ? Math.round(n) : null };
+  }).catch((e) => ({ unitsSold: null, unitsError: String(e.message || e) }));
   try {
     const r = await fetch(endpoint, {
       method: "POST",
@@ -225,7 +244,10 @@ async function handleShopify(env, since, until, cors) {
       totalSales: num(row.total_sales),
       averageOrderValue: num(row.average_order_value)
     };
-    return json({ totals, meta: { domain, since, until, currency: "INR" } }, 200, cors);
+    const units = await unitsP;
+    totals.unitsSold = units.unitsSold;
+    if (units.unitsError) console.error("[worker] handleShopify units query failed:", units.unitsError);
+    return json({ totals, meta: { domain, since, until, currency: "INR", unitsError: units.unitsError || null } }, 200, cors);
   } catch (e) {
     return json({ error: String(e.message || e) }, 500, cors);
   }
