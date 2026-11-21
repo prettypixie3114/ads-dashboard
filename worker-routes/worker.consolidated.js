@@ -180,25 +180,45 @@ async function handleShopify(env, since, until, cors) {
         tableData { columns { name } rows }
       }
     }`;
-  /* Units sold runs as its own query, in parallel, so a ShopifyQL error on
-     that one column can never take down gross/net/orders. */
-  const unitsP = fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "X-Shopify-Access-Token": env.SHOPIFY_ADMIN_TOKEN,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ query: gql, variables: { q: `FROM sales SHOW net_items_sold SINCE ${since} UNTIL ${until}` } })
-  }).then(async (ur) => {
-    const ud = await ur.json();
-    const uq = ud.data && ud.data.shopifyqlQuery;
-    if (ud.errors || !uq || uq.parseErrors && uq.parseErrors.length) {
-      return { unitsSold: null, unitsError: JSON.stringify(ud.errors || uq && uq.parseErrors || "no data") };
+  /* Units sold = gross units ordered − units on cancelled orders. Returns
+     and exchanges are deliberately NOT subtracted (ShopifyQL net_items_sold
+     does subtract them, so it isn't used). Read straight from Orders: every
+     non-test order created in the range (store timezone), summing
+     subtotalLineItemsQuantity, then splitting out cancelled orders. Runs in
+     parallel and is non-fatal — a failure here only blanks the units card. */
+  const adminGql = async (query, variables) => {
+    const ar = await fetch(endpoint, {
+      method: "POST",
+      headers: { "X-Shopify-Access-Token": env.SHOPIFY_ADMIN_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables })
+    });
+    const ad = await ar.json();
+    if (ad.errors) throw new Error(JSON.stringify(ad.errors).slice(0, 300));
+    return ad.data;
+  };
+  const unitsP = (async () => {
+    const tz = (await adminGql("{ shop { timezoneOffset } }")).shop.timezoneOffset || "+0000";
+    const off = tz.replace(/^([+-]\d{2})(\d{2})$/, "$1:$2");
+    const untilNext = new Date(Date.parse(until + "T00:00:00Z") + 864e5).toISOString().slice(0, 10);
+    const search = `created_at:>='${since}T00:00:00${off}' created_at:<'${untilNext}T00:00:00${off}'`;
+    let gross = 0, cancelled = 0, after = null;
+    for (let page = 0; page < 40; page++) {
+      const d = await adminGql(`query($q: String!, $after: String) {
+        orders(first: 250, after: $after, query: $q) {
+          nodes { test cancelledAt subtotalLineItemsQuantity }
+          pageInfo { hasNextPage endCursor }
+        } }`, { q: search, after });
+      for (const o of d.orders.nodes) {
+        if (o.test) continue;
+        const qn = Number(o.subtotalLineItemsQuantity) || 0;
+        gross += qn;
+        if (o.cancelledAt) cancelled += qn;
+      }
+      if (!d.orders.pageInfo.hasNextPage) return { unitsSold: gross - cancelled, unitsGross: gross, unitsCancelled: cancelled };
+      after = d.orders.pageInfo.endCursor;
     }
-    const urow = uq.tableData && uq.tableData.rows && uq.tableData.rows[0] || {};
-    const n = parseFloat(urow.net_items_sold);
-    return { unitsSold: Number.isFinite(n) ? Math.round(n) : null };
-  }).catch((e) => ({ unitsSold: null, unitsError: String(e.message || e) }));
+    throw new Error("too many orders in range (>10,000) for units count");
+  })().catch((e) => ({ unitsSold: null, unitsError: String(e.message || e) }));
   try {
     const r = await fetch(endpoint, {
       method: "POST",
@@ -246,6 +266,8 @@ async function handleShopify(env, since, until, cors) {
     };
     const units = await unitsP;
     totals.unitsSold = units.unitsSold;
+    totals.unitsGross = units.unitsGross ?? null;
+    totals.unitsCancelled = units.unitsCancelled ?? null;
     if (units.unitsError) console.error("[worker] handleShopify units query failed:", units.unitsError);
     return json({ totals, meta: { domain, since, until, currency: "INR", unitsError: units.unitsError || null } }, 200, cors);
   } catch (e) {

@@ -4518,7 +4518,7 @@ function renderShopifyCards() {
     kpiCardHTML('Net Sales',   _gMoney0(t.netSales),   { mono: true, title: 'Gross − discounts − sales reversals (matches Shopify’s Net sales)' }),
     kpiCardHTML('Orders',      _gInt(t.orders)),
     kpiCardHTML('Avg. Order Value', Number(t.averageOrderValue) > 0 ? _gMoney0(t.averageOrderValue) : muted, { mono: true }),
-    kpiCardHTML('Units Sold',  Number.isFinite(t.unitsSold) ? _gInt(t.unitsSold) : muted, { title: 'Shopify net items sold — units ordered minus units returned' }),
+    kpiCardHTML('Units Sold',  Number.isFinite(t.unitsSold) ? _gInt(t.unitsSold) : muted, { title: 'Gross units ordered minus units on cancelled orders (returns &amp; exchanges are not subtracted)' }),
   ].join('');
   const refreshing = s.loading ? '<span class="ml-2 text-[10px] text-slate-400 dark:text-slate-500 normal-case font-normal tracking-normal">refreshing…</span>' : '';
   host.innerHTML = `${heading.replace('</div>', refreshing + '</div>')}<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">${cards}</div>`;
