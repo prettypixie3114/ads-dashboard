@@ -218,7 +218,18 @@ async function handleShopify(env, since, until, cors) {
       after = d.orders.pageInfo.endCursor;
     }
     throw new Error("too many orders in range (>10,000) for units count");
-  })().catch((e) => ({ unitsSold: null, unitsError: String(e.message || e) }));
+  })().catch(async (e) => {
+    let msg = String(e.message || e);
+    /* On a scope error, report which scopes THIS token actually has. */
+    if (/ACCESS_DENIED/.test(msg)) {
+      try {
+        const sc = await adminGql("{ currentAppInstallation { app { title } accessScopes { handle } } }");
+        const ins = sc.currentAppInstallation;
+        msg += ` | token app "${ins.app.title}" scopes: ${ins.accessScopes.map((x) => x.handle).join(", ")}`;
+      } catch (_) {}
+    }
+    return { unitsSold: null, unitsError: msg };
+  });
   try {
     const r = await fetch(endpoint, {
       method: "POST",
